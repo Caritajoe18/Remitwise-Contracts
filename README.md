@@ -94,9 +94,20 @@ cd remittance_split
 cargo test
 ```
 
+## Documentation
+
+- **[API Reference & Usage Examples](bill_payments/README.md)** - Bill Payments Contract
+- **[API Reference & Usage Examples](insurance/README.md)** - Insurance Contract
+- **[API Reference & Usage Examples](remittance_split/README.md)** - Remittance Split Contract
+- **[API Reference & Usage Examples](savings_goals/README.md)** - Savings Goals Contract
+- **[Deployment Guide](DEPLOYMENT.md)** - Complete deployment instructions
+- **[Architecture Overview](ARCHITECTURE.md)** - System design and relationships
+
 ## Deployment
 
-Deploy to testnet:
+See the [Deployment Guide](DEPLOYMENT.md) for comprehensive deployment instructions.
+
+Quick deploy to testnet:
 
 ```bash
 soroban contract deploy \
