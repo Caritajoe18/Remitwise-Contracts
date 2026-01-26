@@ -606,8 +606,13 @@ mod tests {
         let monthly_premium = i128::MAX / 2; // Very large amount
         let coverage_amount = i128::MAX / 2;
 
-        let policy_id =
-            client.create_policy(&owner, &name, &coverage_type, &monthly_premium, &coverage_amount);
+        let policy_id = client.create_policy(
+            &owner,
+            &name,
+            &coverage_type,
+            &monthly_premium,
+            &coverage_amount,
+        );
 
         let policy = client.get_policy(&policy_id).unwrap();
         assert_eq!(policy.monthly_premium, monthly_premium);
