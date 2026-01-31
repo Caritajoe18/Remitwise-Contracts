@@ -20,7 +20,7 @@ fn test_initialize_split() {
         &5,  // insurance
     );
 
-    assert!(success);
+    assert_eq!(success, true);
 
     let config = client.get_config().unwrap();
     assert_eq!(config.owner, owner);
@@ -31,7 +31,6 @@ fn test_initialize_split() {
 }
 
 #[test]
-#[should_panic(expected = "Percentages must sum to 100")]
 fn test_initialize_split_invalid_sum() {
     let env = Env::default();
     let contract_id = env.register_contract(None, RemittanceSplit);
@@ -40,15 +39,15 @@ fn test_initialize_split_invalid_sum() {
 
     env.mock_all_auths();
 
-    client.initialize_split(
+    let result = client.try_initialize_split(
         &owner, &0, // nonce
         &50, &50, &10, // Sums to 110
         &0,
     );
+    assert_eq!(result, Err(Ok(RemittanceSplitError::InvalidPercentages)));
 }
 
 #[test]
-#[should_panic(expected = "Split already initialized. Use update_split to modify.")]
 fn test_initialize_split_already_initialized() {
     let env = Env::default();
     let contract_id = env.register_contract(None, RemittanceSplit);
@@ -59,7 +58,8 @@ fn test_initialize_split_already_initialized() {
 
     client.initialize_split(&owner, &0, &50, &30, &15, &5);
     // Second init should fail
-    client.initialize_split(&owner, &1, &50, &30, &15, &5);
+    let result = client.try_initialize_split(&owner, &1, &50, &30, &15, &5);
+    assert_eq!(result, Err(Ok(RemittanceSplitError::AlreadyInitialized)));
 }
 
 #[test]
@@ -74,7 +74,7 @@ fn test_update_split() {
     client.initialize_split(&owner, &0, &50, &30, &15, &5);
 
     let success = client.update_split(&owner, &1, &40, &40, &10, &10);
-    assert!(success);
+    assert_eq!(success, true);
 
     let config = client.get_config().unwrap();
     assert_eq!(config.spending_percent, 40);
@@ -84,7 +84,6 @@ fn test_update_split() {
 }
 
 #[test]
-#[should_panic(expected = "Only the owner can update the split configuration")]
 fn test_update_split_unauthorized() {
     let env = Env::default();
     let contract_id = env.register_contract(None, RemittanceSplit);
@@ -96,7 +95,8 @@ fn test_update_split_unauthorized() {
 
     client.initialize_split(&owner, &0, &50, &30, &15, &5);
 
-    client.update_split(&other, &0, &40, &40, &10, &10);
+    let result = client.try_update_split(&other, &0, &40, &40, &10, &10);
+    assert_eq!(result, Err(Ok(RemittanceSplitError::Unauthorized)));
 }
 
 #[test]
@@ -150,7 +150,6 @@ fn test_calculate_split_rounding() {
 }
 
 #[test]
-#[should_panic(expected = "Total amount must be positive")]
 fn test_calculate_split_zero_amount() {
     let env = Env::default();
     let contract_id = env.register_contract(None, RemittanceSplit);
@@ -160,7 +159,8 @@ fn test_calculate_split_zero_amount() {
     env.mock_all_auths();
     client.initialize_split(&owner, &0, &50, &30, &15, &5);
 
-    client.calculate_split(&0);
+    let result = client.try_calculate_split(&0);
+    assert_eq!(result, Err(Ok(RemittanceSplitError::InvalidAmount)));
 }
 
 #[test]
