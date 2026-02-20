@@ -1,5 +1,8 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, vec, Env, Symbol, Vec};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, symbol_short, token::TokenClient, vec,
+    Address, Env, Map, Symbol, Vec,
+};
 
 // Event topics
 const SPLIT_INITIALIZED: Symbol = symbol_short!("init");
@@ -9,10 +12,12 @@ const SPLIT_CALCULATED: Symbol = symbol_short!("calc");
 #[derive(Clone)]
 #[contracttype]
 pub struct SplitInitializedEvent {
-use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token::TokenClient, vec,
-    Address, Env, Map, Symbol, Vec,
-};
+    pub spending_percent: u32,
+    pub savings_percent: u32,
+    pub bills_percent: u32,
+    pub insurance_percent: u32,
+    pub timestamp: u64,
+}
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -186,7 +191,7 @@ impl RemittanceSplit {
             savings_percent,
             bills_percent,
             insurance_percent,
-            initialized: true,
+            timestamp: env.ledger().timestamp(),
         };
 
         env.storage()
@@ -370,6 +375,7 @@ impl RemittanceSplit {
             bills_amount: bills,
             insurance_amount: insurance,
             timestamp: env.ledger().timestamp(),
+            initialized: true,
         };
         env.events().publish((SPLIT_CALCULATED,), event);
         // Emit event for audit trail
@@ -804,16 +810,18 @@ impl RemittanceSplit {
 #[cfg(test)]
 mod test {
     use super::*;
-    use soroban_sdk::testutils::Events;
+    use soroban_sdk::testutils::{Address as _, Events};
 
     #[test]
     fn test_initialize_split_emits_event() {
         let env = Env::default();
+        env.mock_all_auths();
         let contract_id = env.register_contract(None, RemittanceSplit);
         let client = RemittanceSplitClient::new(&env, &contract_id);
+        let owner = Address::generate(&env);
 
         // Initialize split
-        let result = client.initialize_split(&50, &30, &15, &5);
+        let result = client.initialize_split(&owner, &0, &50, &30, &15, &5);
         assert!(result);
 
         // Verify event was emitted
@@ -824,11 +832,13 @@ mod test {
     #[test]
     fn test_calculate_split_emits_event() {
         let env = Env::default();
+        env.mock_all_auths();
         let contract_id = env.register_contract(None, RemittanceSplit);
         let client = RemittanceSplitClient::new(&env, &contract_id);
+        let owner = Address::generate(&env);
 
         // Initialize split first
-        client.initialize_split(&40, &30, &20, &10);
+        client.initialize_split(&owner, &0, &40, &30, &20, &10);
 
         // Get events before calculating
         let events_before = env.events().all().len();
@@ -841,26 +851,28 @@ mod test {
         assert_eq!(result.get(2).unwrap(), 200); // 20% of 1000
         assert_eq!(result.get(3).unwrap(), 100); // 10% of 1000
 
-        // Verify 1 new event was emitted
+        // Verify 2 new events were emitted (SplitCalculated + audit event)
         let events_after = env.events().all().len();
-        assert_eq!(events_after - events_before, 1);
+        assert_eq!(events_after - events_before, 2);
     }
 
     #[test]
     fn test_multiple_operations_emit_multiple_events() {
         let env = Env::default();
+        env.mock_all_auths();
         let contract_id = env.register_contract(None, RemittanceSplit);
         let client = RemittanceSplitClient::new(&env, &contract_id);
+        let owner = Address::generate(&env);
 
         // Initialize split
-        client.initialize_split(&50, &25, &15, &10);
+        client.initialize_split(&owner, &0, &50, &25, &15, &10);
 
         // Calculate split twice
         client.calculate_split(&2000);
         client.calculate_split(&3000);
 
-        // Should have 3 events total (1 init + 2 calc)
+        // Should have 5 events total (1 init + 2*2 calc)
         let events = env.events().all();
-        assert_eq!(events.len(), 3);
+        assert_eq!(events.len(), 5);
     }
 }
