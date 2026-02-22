@@ -309,7 +309,8 @@ impl FamilyWallet {
         }
 
         // Validate threshold
-        if threshold == 0 || threshold > signers.len() {
+        let signer_count = signers.len();
+        if threshold == 0 || threshold > signer_count {
             panic!("Invalid threshold");
         }
 
@@ -329,7 +330,7 @@ impl FamilyWallet {
 
         let config = MultiSigConfig {
             threshold,
-            signers: signers.clone(),
+            signers,
             spending_limit,
         };
 

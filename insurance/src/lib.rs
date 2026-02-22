@@ -44,6 +44,7 @@ const INSTANCE_BUMP_AMOUNT: u32 = 518400; // ~30 days
 
 const CONTRACT_VERSION: u32 = 1;
 const MAX_BATCH_SIZE: u32 = 50;
+const STORAGE_PREMIUM_TOTALS: Symbol = symbol_short!("PRM_TOT");
 
 pub mod pause_functions {
     use soroban_sdk::{symbol_short, Symbol};
@@ -342,6 +343,7 @@ impl Insurance {
         env.storage()
             .instance()
             .set(&symbol_short!("NEXT_ID"), &next_id);
+        Self::adjust_active_premium_total(&env, &policy_owner, monthly_premium);
 
         // Emit PolicyCreated event
         let event = PolicyCreatedEvent {
@@ -535,6 +537,12 @@ impl Insurance {
     /// # Returns
     /// Total monthly premium amount for the owner's active policies
     pub fn get_total_monthly_premium(env: Env, owner: Address) -> i128 {
+        if let Some(totals) = Self::get_active_premium_totals_map(&env) {
+            if let Some(total) = totals.get(owner.clone()) {
+                return total;
+            }
+        }
+
         let mut total = 0i128;
         let policies: Map<u32, InsurancePolicy> = env
             .storage()
@@ -583,7 +591,9 @@ impl Insurance {
             panic!("Only the policy owner can deactivate this policy");
         }
 
+        let was_active = policy.active;
         policy.active = false;
+        let premium_amount = policy.monthly_premium;
 
         // Emit PolicyDeactivated event
         let event = PolicyDeactivatedEvent {
@@ -593,16 +603,18 @@ impl Insurance {
         };
         env.events().publish((POLICY_DEACTIVATED,), event);
 
+        policies.set(policy_id, policy);
+        env.storage()
+            .instance()
+            .set(&symbol_short!("POLICIES"), &policies);
+        if was_active {
+            Self::adjust_active_premium_total(&env, &caller, -premium_amount);
+        }
         // Emit enum-based audit event
         env.events().publish(
             (symbol_short!("insuranc"), InsuranceEvent::PolicyDeactivated),
             (policy_id, caller),
         );
-
-        policies.set(policy_id, policy);
-        env.storage()
-            .instance()
-            .set(&symbol_short!("POLICIES"), &policies);
         true
     }
 
@@ -611,6 +623,29 @@ impl Insurance {
         env.storage()
             .instance()
             .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+    }
+
+    fn get_active_premium_totals_map(env: &Env) -> Option<Map<Address, i128>> {
+        env.storage().instance().get(&STORAGE_PREMIUM_TOTALS)
+    }
+
+    fn adjust_active_premium_total(env: &Env, owner: &Address, delta: i128) {
+        if delta == 0 {
+            return;
+        }
+        let mut totals: Map<Address, i128> = env
+            .storage()
+            .instance()
+            .get(&STORAGE_PREMIUM_TOTALS)
+            .unwrap_or_else(|| Map::new(env));
+        let current = totals.get(owner.clone()).unwrap_or(0);
+        let next = if delta >= 0 {
+            current.saturating_add(delta)
+        } else {
+            current.saturating_sub(delta.saturating_abs())
+        };
+        totals.set(owner.clone(), next);
+        env.storage().instance().set(&STORAGE_PREMIUM_TOTALS, &totals);
     }
 
     /// Create a schedule for automatic premium payments

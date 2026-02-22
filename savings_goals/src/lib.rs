@@ -139,6 +139,7 @@ impl SavingsGoalContract {
     // Storage keys
     const STORAGE_NEXT_ID: Symbol = symbol_short!("NEXT_ID");
     const STORAGE_GOALS: Symbol = symbol_short!("GOALS");
+    const STORAGE_OWNER_GOAL_IDS: Symbol = symbol_short!("OWN_GOAL");
 
     /// Initialize contract storage
     pub fn init(env: Env) {
@@ -370,6 +371,7 @@ impl SavingsGoalContract {
         env.storage()
             .instance()
             .set(&symbol_short!("NEXT_ID"), &next_id);
+        Self::append_owner_goal_id(&env, &owner, next_id);
 
         // Emit GoalCreated event
         let event = GoalCreatedEvent {
@@ -783,6 +785,28 @@ impl SavingsGoalContract {
             .get(&symbol_short!("GOALS"))
             .unwrap_or_else(|| Map::new(&env));
 
+        if let Some(owner_goal_ids) = Self::get_owner_goal_ids_map(&env) {
+            if let Some(goal_ids) = owner_goal_ids.get(owner.clone()) {
+                if goal_ids.len() == goals.len() {
+                    let mut result = Vec::new(&env);
+                    for (_, goal) in goals.iter() {
+                        result.push_back(goal);
+                    }
+                    return result;
+                }
+                // Index path is only cheaper when this owner's subset is smaller than the full map.
+                if goal_ids.len() < goals.len() {
+                    let mut result = Vec::new(&env);
+                    for goal_id in goal_ids.iter() {
+                        if let Some(goal) = goals.get(goal_id) {
+                            result.push_back(goal);
+                        }
+                    }
+                    return result;
+                }
+            }
+        }
+
         let mut result = Vec::new(&env);
         for (_, goal) in goals.iter() {
             if goal.owner == owner {
@@ -866,8 +890,14 @@ impl SavingsGoalContract {
 
         Self::extend_instance_ttl(&env);
         let mut goals: Map<u32, SavingsGoal> = Map::new(&env);
+        let mut owner_goal_ids: Map<Address, Vec<u32>> = Map::new(&env);
         for g in snapshot.goals.iter() {
-            goals.set(g.id, g);
+            goals.set(g.id, g.clone());
+            let mut ids = owner_goal_ids
+                .get(g.owner.clone())
+                .unwrap_or_else(|| Vec::new(&env));
+            ids.push_back(g.id);
+            owner_goal_ids.set(g.owner.clone(), ids);
         }
         env.storage()
             .instance()
@@ -875,6 +905,9 @@ impl SavingsGoalContract {
         env.storage()
             .instance()
             .set(&symbol_short!("NEXT_ID"), &snapshot.next_id);
+        env.storage()
+            .instance()
+            .set(&Self::STORAGE_OWNER_GOAL_IDS, &owner_goal_ids);
 
         Self::increment_nonce(&env, &caller);
         Self::append_audit(&env, symbol_short!("import"), &caller, true);
@@ -957,6 +990,26 @@ impl SavingsGoalContract {
             success,
         });
         env.storage().instance().set(&symbol_short!("AUDIT"), &log);
+    }
+
+    fn get_owner_goal_ids_map(env: &Env) -> Option<Map<Address, Vec<u32>>> {
+        env.storage().instance().get(&Self::STORAGE_OWNER_GOAL_IDS)
+    }
+
+    fn append_owner_goal_id(env: &Env, owner: &Address, goal_id: u32) {
+        let mut owner_goal_ids: Map<Address, Vec<u32>> = env
+            .storage()
+            .instance()
+            .get(&Self::STORAGE_OWNER_GOAL_IDS)
+            .unwrap_or_else(|| Map::new(env));
+        let mut ids = owner_goal_ids
+            .get(owner.clone())
+            .unwrap_or_else(|| Vec::new(env));
+        ids.push_back(goal_id);
+        owner_goal_ids.set(owner.clone(), ids);
+        env.storage()
+            .instance()
+            .set(&Self::STORAGE_OWNER_GOAL_IDS, &owner_goal_ids);
     }
 
     /// Extend the TTL of instance storage
