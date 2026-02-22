@@ -186,7 +186,7 @@ impl SavingsGoalContract {
         let goal = SavingsGoal {
             id: next_id,
             owner: owner.clone(),
-            name,
+            name: name.clone(),
             target_amount,
             current_amount: 0,
             target_date,
@@ -253,41 +253,65 @@ impl SavingsGoalContract {
             .get(&symbol_short!("GOALS"))
             .unwrap_or_else(|| Map::new(&env));
 
-        if let Some(mut goal) = goals.get(goal_id) {
-            goal.current_amount += amount;
-            let new_total = goal.current_amount;
-            let was_completed = goal.current_amount >= goal.target_amount;
-
-            goals.set(goal_id, goal.clone());
-            env.storage()
-                .instance()
-                .set(&symbol_short!("GOALS"), &goals);
-
-            // Emit FundsAdded event
-            let funds_event = FundsAddedEvent {
-                goal_id,
-                amount,
-                new_total,
-                timestamp: env.ledger().timestamp(),
-            };
-            env.events().publish((FUNDS_ADDED,), funds_event);
-
-            // Emit GoalCompleted event if goal just reached target
-            if was_completed && (new_total - amount) < goal.target_amount {
-                let completed_event = GoalCompletedEvent {
-                    goal_id,
-                    name: goal.name.clone(),
-                    final_amount: new_total,
-                    timestamp: env.ledger().timestamp(),
-                };
-                env.events().publish((GOAL_COMPLETED,), completed_event);
+        let mut goal = match goals.get(goal_id) {
+            Some(g) => g,
+            None => {
+                Self::append_audit(&env, symbol_short!("add"), &caller, false);
+                panic!("Goal not found");
             }
+        };
 
-            goal.current_amount
-        } else {
+        // Access control: verify caller is the owner
+        if goal.owner != caller {
             Self::append_audit(&env, symbol_short!("add"), &caller, false);
             panic!("Goal not found");
         }
+
+        goal.current_amount = goal.current_amount.checked_add(amount).expect("overflow");
+        let new_total = goal.current_amount;
+        let was_completed = new_total >= goal.target_amount;
+        let previously_completed = (new_total - amount) >= goal.target_amount;
+
+        goals.set(goal_id, goal.clone());
+        env.storage()
+            .instance()
+            .set(&symbol_short!("GOALS"), &goals);
+
+        // Emit FundsAdded event
+        let funds_event = FundsAddedEvent {
+            goal_id,
+            amount,
+            new_total,
+            timestamp: env.ledger().timestamp(),
+        };
+        env.events().publish((FUNDS_ADDED,), funds_event);
+
+        // Emit GoalCompleted struct event if it just became completed
+        if was_completed && !previously_completed {
+            let completed_event = GoalCompletedEvent {
+                goal_id,
+                name: goal.name.clone(),
+                final_amount: new_total,
+                timestamp: env.ledger().timestamp(),
+            };
+            env.events().publish((GOAL_COMPLETED,), completed_event);
+        }
+
+        // Emit Audit/Enum Events
+        Self::append_audit(&env, symbol_short!("add"), &caller, true);
+        env.events().publish(
+            (symbol_short!("savings"), SavingsEvent::FundsAdded),
+            (goal_id, caller.clone(), amount),
+        );
+
+        if was_completed {
+            env.events().publish(
+                (symbol_short!("savings"), SavingsEvent::GoalCompleted),
+                (goal_id, caller),
+            );
+        }
+
+        new_total
     }
 
     /// Withdraw funds from a savings goal
@@ -529,7 +553,10 @@ impl SavingsGoalContract {
     pub fn get_nonce(env: Env, address: Address) -> u64 {
         let nonces: Option<Map<Address, u64>> =
             env.storage().instance().get(&symbol_short!("NONCES"));
-        nonces.as_ref().and_then(|m| m.get(address)).unwrap_or(0)
+        nonces
+            .as_ref()
+            .and_then(|m: &Map<Address, u64>| m.get(address))
+            .unwrap_or(0)
     }
 
     /// Export all goals as snapshot for backup/migration.
@@ -1002,117 +1029,4 @@ impl SavingsGoalContract {
 }
 
 #[cfg(test)]
-mod test {
-    use super::*;
-    use soroban_sdk::testutils::Events;
-
-    #[test]
-    fn test_create_goal_emits_event() {
-        let env = Env::default();
-        let contract_id = env.register_contract(None, SavingsGoalContract);
-        let client = SavingsGoalContractClient::new(&env, &contract_id);
-        let owner = Address::generate(&env);
-
-        // Create a goal
-        let goal_id = client.create_goal(
-            &owner,
-            &String::from_str(&env, "Education"),
-            &10000,
-            &1735689600, // Future date
-        );
-        assert_eq!(goal_id, 1);
-
-        // Verify event was emitted
-        let events = env.events().all();
-        assert_eq!(events.len(), 1);
-    }
-
-    #[test]
-    fn test_add_to_goal_emits_event() {
-        let env = Env::default();
-        let contract_id = env.register_contract(None, SavingsGoalContract);
-        let client = SavingsGoalContractClient::new(&env, &contract_id);
-        let owner = Address::generate(&env);
-
-        // Create a goal
-        let goal_id = client.create_goal(
-            &owner,
-            &String::from_str(&env, "Medical"),
-            &5000,
-            &1735689600,
-        );
-
-        // Get events before adding funds
-        let events_before = env.events().all().len();
-
-        env.mock_all_auths();
-
-        // Add funds
-        let new_amount = client.add_to_goal(&owner, &goal_id, &1000);
-        assert_eq!(new_amount, 1000);
-
-        // Verify 1 new event was emitted (FundsAdded event)
-        let events_after = env.events().all().len();
-        assert_eq!(events_after - events_before, 1);
-    }
-
-    #[test]
-    fn test_goal_completed_emits_event() {
-        let env = Env::default();
-        let contract_id = env.register_contract(None, SavingsGoalContract);
-        let client = SavingsGoalContractClient::new(&env, &contract_id);
-        let owner = Address::generate(&env);
-
-        // Create a goal with small target
-        let goal_id = client.create_goal(
-            &owner,
-            &String::from_str(&env, "Emergency Fund"),
-            &1000,
-            &1735689600,
-        );
-
-        // Get events before adding funds
-        let events_before = env.events().all().len();
-
-        env.mock_all_auths();
-
-        // Add funds to complete the goal
-        client.add_to_goal(&owner, &goal_id, &1000);
-
-        // Verify both FundsAdded and GoalCompleted events were emitted (2 new events)
-        let events_after = env.events().all().len();
-        assert_eq!(events_after - events_before, 2);
-    }
-
-    #[test]
-    fn test_multiple_goals_emit_separate_events() {
-        let env = Env::default();
-        let contract_id = env.register_contract(None, SavingsGoalContract);
-        let client = SavingsGoalContractClient::new(&env, &contract_id);
-        let owner = Address::generate(&env);
-
-        // Create multiple goals
-        client.create_goal(
-            &owner,
-            &String::from_str(&env, "Goal 1"),
-            &1000,
-            &1735689600,
-        );
-        client.create_goal(
-            &owner,
-            &String::from_str(&env, "Goal 2"),
-            &2000,
-            &1735689600,
-        );
-        client.create_goal(
-            &owner,
-            &String::from_str(&env, "Goal 3"),
-            &3000,
-            &1735689600,
-        );
-
-        // Should have 3 GoalCreated events
-        let events = env.events().all();
-        assert_eq!(events.len(), 3);
-    }
-}
+mod test;
