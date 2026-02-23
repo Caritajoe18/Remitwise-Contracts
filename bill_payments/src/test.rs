@@ -1159,4 +1159,90 @@ mod testsuit {
         assert_eq!(bob_overdue.len(), 1);
         assert_eq!(bob_overdue.get(0).unwrap().owner, bob);
     }
+
+    #[test]
+    #[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+    fn test_create_bill_non_owner_auth_failure() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, BillPayments);
+        let client = BillPaymentsClient::new(&env, &contract_id);
+        let owner = <soroban_sdk::Address as AddressTrait>::generate(&env);
+        let other = <soroban_sdk::Address as AddressTrait>::generate(&env);
+
+        // Do not mock auth for other, attempt to create bill for owner as other
+        // Wait, if other calls, it's just a call. The contract will check owner.require_auth().
+        // If owner didn't authorize, it panics.
+        client.create_bill(
+            &owner,
+            &String::from_str(&env, "Water"),
+            &500,
+            &1000000,
+            &false,
+            &0,
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+    fn test_pay_bill_non_owner_auth_failure() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, BillPayments);
+        let client = BillPaymentsClient::new(&env, &contract_id);
+        let owner = <soroban_sdk::Address as AddressTrait>::generate(&env);
+        let other = <soroban_sdk::Address as AddressTrait>::generate(&env);
+
+        client.mock_auths(&[soroban_sdk::testutils::MockAuth {
+            address: &owner,
+            invoke: &soroban_sdk::testutils::MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "create_bill",
+                args: (&owner, String::from_str(&env, "Water"), 500i128, 1000000u64, false, 0u32).into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
+
+        let bill_id = client.create_bill(
+            &owner,
+            &String::from_str(&env, "Water"),
+            &500,
+            &1000000,
+            &false,
+            &0,
+        );
+
+        // other tries to pay the bill for owner
+        client.pay_bill(&owner, &bill_id);
+    }
+
+    #[test]
+    #[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+    fn test_cancel_bill_non_owner_auth_failure() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, BillPayments);
+        let client = BillPaymentsClient::new(&env, &contract_id);
+        let owner = <soroban_sdk::Address as AddressTrait>::generate(&env);
+        let other = <soroban_sdk::Address as AddressTrait>::generate(&env);
+
+        client.mock_auths(&[soroban_sdk::testutils::MockAuth {
+            address: &owner,
+            invoke: &soroban_sdk::testutils::MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "create_bill",
+                args: (&owner, String::from_str(&env, "Water"), 500i128, 1000000u64, false, 0u32).into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
+
+        let bill_id = client.create_bill(
+            &owner,
+            &String::from_str(&env, "Water"),
+            &500,
+            &1000000,
+            &false,
+            &0,
+        );
+
+        // other tries to cancel the bill for owner
+        client.cancel_bill(&owner, &bill_id);
+    }
 }

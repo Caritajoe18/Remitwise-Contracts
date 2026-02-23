@@ -416,3 +416,26 @@ fn test_calculate_split_events() {
     let data: i128 = i128::try_from_val(&env, &last_event.2).unwrap();
     assert_eq!(data, total_amount);
 }
+
+#[test]
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+fn test_update_split_non_owner_auth_failure() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, RemittanceSplit);
+    let client = RemittanceSplitClient::new(&env, &contract_id);
+    let owner = Address::generate(&env);
+    let other = Address::generate(&env);
+
+    client.mock_auths(&[soroban_sdk::testutils::MockAuth {
+        address: &owner,
+        invoke: &soroban_sdk::testutils::MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "initialize_split",
+            args: (&owner, 0u64, 50u32, 30u32, 15u32, 5u32).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]).initialize_split(&owner, &0, &50, &30, &15, &5);
+
+    // Call as other without mocking auth, expecting panic
+    client.update_split(&other, &0, &40, &40, &10, &10);
+}

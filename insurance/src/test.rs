@@ -749,3 +749,85 @@ fn test_deactivate_policy_emits_event() {
     assert_eq!(data, (policy_id, owner.clone()));
     assert_eq!(audit_event.0, contract_id.clone());
 }
+
+#[test]
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+fn test_create_policy_non_owner_auth_failure() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, Insurance);
+    let client = InsuranceClient::new(&env, &contract_id);
+    let owner = Address::generate(&env);
+    let other = Address::generate(&env);
+
+    // Do not mock auth for other, attempt to create policy for owner as other
+    // If owner didn't authorize, it panics.
+    client.create_policy(
+        &owner,
+        &String::from_str(&env, "Policy"),
+        &String::from_str(&env, "Type"),
+        &100,
+        &10000,
+    );
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+fn test_pay_premium_non_owner_auth_failure() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, Insurance);
+    let client = InsuranceClient::new(&env, &contract_id);
+    let owner = Address::generate(&env);
+    let other = Address::generate(&env);
+
+    client.mock_auths(&[soroban_sdk::testutils::MockAuth {
+        address: &owner,
+        invoke: &soroban_sdk::testutils::MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "create_policy",
+            args: (&owner, String::from_str(&env, "Policy"), String::from_str(&env, "Type"), 100u32, 10000i128).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    let policy_id = client.create_policy(
+        &owner,
+        &String::from_str(&env, "Policy"),
+        &String::from_str(&env, "Type"),
+        &100,
+        &10000,
+    );
+
+    // other tries to pay the premium for owner
+    client.pay_premium(&owner, &policy_id);
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+fn test_deactivate_policy_non_owner_auth_failure() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, Insurance);
+    let client = InsuranceClient::new(&env, &contract_id);
+    let owner = Address::generate(&env);
+    let other = Address::generate(&env);
+
+    client.mock_auths(&[soroban_sdk::testutils::MockAuth {
+        address: &owner,
+        invoke: &soroban_sdk::testutils::MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "create_policy",
+            args: (&owner, String::from_str(&env, "Policy"), String::from_str(&env, "Type"), 100u32, 10000i128).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    let policy_id = client.create_policy(
+        &owner,
+        &String::from_str(&env, "Policy"),
+        &String::from_str(&env, "Type"),
+        &100,
+        &10000,
+    );
+
+    // other tries to deactivate the policy for owner
+    client.deactivate_policy(&owner, &policy_id);
+}
