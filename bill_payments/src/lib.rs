@@ -20,6 +20,8 @@ pub const MAX_PAGE_LIMIT: u32 = 50;
 
 #[derive(Clone, Debug)]
 #[contracttype]
+#[derive(Clone, Debug)]
+#[contracttype]
 pub struct Bill {
     pub id: u32,
     pub owner: Address,
@@ -32,7 +34,9 @@ pub struct Bill {
     pub created_at: u64,
     pub paid_at: Option<u64>,
     pub schedule_id: Option<u32>,
+    pub tags: Vec<String>,
 }
+
 
 /// Paginated result for bill queries
 #[contracttype]
@@ -73,8 +77,12 @@ pub enum Error {
     BatchTooLarge = 9,
     BatchValidationFailed = 10,
     InvalidLimit = 11,
+    InvalidTag = 12,
+    EmptyTags = 13,
 }
 
+#[contracttype]
+#[derive(Clone)]
 #[contracttype]
 #[derive(Clone)]
 pub struct ArchivedBill {
@@ -84,7 +92,9 @@ pub struct ArchivedBill {
     pub amount: i128,
     pub paid_at: u64,
     pub archived_at: u64,
+    pub tags: Vec<String>,
 }
+
 
 /// Paginated result for archived bill queries
 #[contracttype]
@@ -391,6 +401,7 @@ impl BillPayments {
             created_at: current_time,
             paid_at: None,
             schedule_id: None,
+            tags: Vec::new(&env),
         };
 
         let bill_owner = bill.owner.clone();
@@ -458,6 +469,7 @@ impl BillPayments {
                 created_at: current_time,
                 paid_at: None,
                 schedule_id: bill.schedule_id,
+                tags: bill.tags.clone(),
             };
             bills.set(next_id, next_bill);
             env.storage()
@@ -810,6 +822,7 @@ impl BillPayments {
                         amount: bill.amount,
                         paid_at,
                         archived_at: current_time,
+                        tags: bill.tags.clone(),
                     };
                     archived.set(id, archived_bill);
                     to_remove.push_back(id);
@@ -876,6 +889,7 @@ impl BillPayments {
             created_at: archived_bill.paid_at,
             paid_at: Some(archived_bill.paid_at),
             schedule_id: None,
+            tags: archived_bill.tags.clone(),
         };
 
         bills.set(bill_id, restored_bill);
@@ -998,6 +1012,7 @@ impl BillPayments {
                     created_at: current_time,
                     paid_at: None,
                     schedule_id: bill.schedule_id,
+                    tags: bill.tags.clone(),
                 };
                 bills.set(next_id, next_bill);
             }
@@ -1054,6 +1069,117 @@ impl BillPayments {
                 total_archived_amount: 0,
                 last_updated: 0,
             })
+    }
+
+    // -----------------------------------------------------------------------
+    // Tag management
+    // -----------------------------------------------------------------------
+
+    fn validate_tags(tags: &Vec<String>) -> Result<(), Error> {
+        if tags.is_empty() {
+            return Err(Error::EmptyTags);
+        }
+        for tag in tags.iter() {
+            if tag.len() == 0 || tag.len() > 32 {
+                return Err(Error::InvalidTag);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn add_tags_to_bill(
+        env: Env,
+        caller: Address,
+        bill_id: u32,
+        tags: Vec<String>,
+    ) -> Result<(), Error> {
+        caller.require_auth();
+        Self::validate_tags(&tags)?;
+        Self::extend_instance_ttl(&env);
+
+        let mut bills: Map<u32, Bill> = env
+            .storage()
+            .instance()
+            .get(&symbol_short!("BILLS"))
+            .unwrap_or_else(|| Map::new(&env));
+
+        let mut bill = bills.get(bill_id).ok_or(Error::BillNotFound)?;
+
+        if bill.owner != caller {
+            return Err(Error::Unauthorized);
+        }
+
+        for tag in tags.iter() {
+            bill.tags.push_back(tag);
+        }
+
+        bills.set(bill_id, bill);
+        env.storage()
+            .instance()
+            .set(&symbol_short!("BILLS"), &bills);
+
+        RemitwiseEvents::emit(
+            &env,
+            EventCategory::State,
+            EventPriority::Low,
+            symbol_short!("tags_add"),
+            (bill_id, caller, tags),
+        );
+
+        Ok(())
+    }
+
+    pub fn remove_tags_from_bill(
+        env: Env,
+        caller: Address,
+        bill_id: u32,
+        tags: Vec<String>,
+    ) -> Result<(), Error> {
+        caller.require_auth();
+        Self::validate_tags(&tags)?;
+        Self::extend_instance_ttl(&env);
+
+        let mut bills: Map<u32, Bill> = env
+            .storage()
+            .instance()
+            .get(&symbol_short!("BILLS"))
+            .unwrap_or_else(|| Map::new(&env));
+
+        let mut bill = bills.get(bill_id).ok_or(Error::BillNotFound)?;
+
+        if bill.owner != caller {
+            return Err(Error::Unauthorized);
+        }
+
+        let mut new_tags = Vec::new(&env);
+        for existing_tag in bill.tags.iter() {
+            let mut should_keep = true;
+            for remove_tag in tags.iter() {
+                if existing_tag == remove_tag {
+                    should_keep = false;
+                    break;
+                }
+            }
+            if should_keep {
+                new_tags.push_back(existing_tag);
+            }
+        }
+
+        bill.tags = new_tags;
+        bills.set(bill_id, bill);
+        env.storage()
+            .instance()
+            .set(&symbol_short!("BILLS"), &bills);
+
+        RemitwiseEvents::emit(
+            &env,
+            EventCategory::State,
+            EventPriority::Low,
+            symbol_short!("tags_rem"),
+            (bill_id, caller, tags),
+        );
+
+        Ok(())
     }
 
     // -----------------------------------------------------------------------
