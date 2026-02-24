@@ -1153,7 +1153,9 @@ mod test {
         let result = client.initialize_split(&owner, &0, &50, &30, &15, &5);
         assert!(result, "initialize_split should return true on success");
 
-        let config = client.get_config().expect("config should be stored after init");
+        let config = client
+            .get_config()
+            .expect("config should be stored after init");
         assert_eq!(config.owner, owner);
         assert_eq!(config.spending_percent, 50);
         assert_eq!(config.savings_percent, 30);
@@ -1314,7 +1316,10 @@ mod test {
         assert!(config.is_some(), "get_config should be Some after init");
 
         let config = config.unwrap();
-        assert_eq!(config.owner, owner, "config owner must match the initializer");
+        assert_eq!(
+            config.owner, owner,
+            "config owner must match the initializer"
+        );
         assert_eq!(config.spending_percent, 50);
         assert_eq!(config.savings_percent, 30);
         assert_eq!(config.bills_percent, 15);
@@ -1368,7 +1373,10 @@ mod test {
 
         // Large negative
         let result_large_neg = client.try_calculate_split(&-9999);
-        assert_eq!(result_large_neg, Err(Ok(RemittanceSplitError::InvalidAmount)));
+        assert_eq!(
+            result_large_neg,
+            Err(Ok(RemittanceSplitError::InvalidAmount))
+        );
     }
 
     /// 12. test_calculate_split_rounding
@@ -1422,8 +1430,7 @@ mod test {
 
         // The last event topic should be (symbol_short!("split"), SplitEvent::Initialized)
         let init_event = events_after_init.last().unwrap();
-        let topic0: Symbol =
-            Symbol::try_from_val(&env, &init_event.1.get(0).unwrap()).unwrap();
+        let topic0: Symbol = Symbol::try_from_val(&env, &init_event.1.get(0).unwrap()).unwrap();
         let topic1: SplitEvent =
             SplitEvent::try_from_val(&env, &init_event.1.get(1).unwrap()).unwrap();
         assert_eq!(topic0, symbol_short!("split"));
