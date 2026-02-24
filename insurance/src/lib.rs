@@ -3,6 +3,8 @@ use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, Address, Env, Map, String, Symbol, Vec,
 };
 
+use remitwise_common::CoverageType;
+
 // Event topics
 const POLICY_CREATED: Symbol = symbol_short!("created");
 const PREMIUM_PAID: Symbol = symbol_short!("paid");
@@ -13,7 +15,7 @@ const POLICY_DEACTIVATED: Symbol = symbol_short!("deactive");
 pub struct PolicyCreatedEvent {
     pub policy_id: u32,
     pub name: String,
-    pub coverage_type: String,
+    pub coverage_type: CoverageType,
     pub monthly_premium: i128,
     pub coverage_amount: i128,
     pub timestamp: u64,
@@ -63,7 +65,7 @@ pub struct InsurancePolicy {
     pub id: u32,
     pub owner: Address,
     pub name: String,
-    pub coverage_type: String,
+    pub coverage_type: CoverageType,
     pub monthly_premium: i128,
     pub coverage_amount: i128,
     pub active: bool,
@@ -304,7 +306,7 @@ impl Insurance {
         env: Env,
         owner: Address,
         name: String,
-        coverage_type: String,
+        coverage_type: CoverageType,
         monthly_premium: i128,
         coverage_amount: i128,
     ) -> u32 {
@@ -926,7 +928,7 @@ mod test {
             let id = client.create_policy(
                 owner,
                 &String::from_str(env, "Policy"),
-                &String::from_str(env, "health"),
+                &CoverageType::Health,
                 &(50i128 * (i as i128 + 1)),
                 &(10000i128 * (i as i128 + 1)),
             );
@@ -1098,7 +1100,7 @@ mod test {
         let policy_id = client.create_policy(
             &owner,
             &String::from_str(&env, "Health Insurance"),
-            &String::from_str(&env, "health"),
+            &CoverageType::Health,
             &100,
             &50000,
         );
@@ -1143,7 +1145,7 @@ mod test {
         let policy_id = client.create_policy(
             &owner,
             &String::from_str(&env, "Complete Lifecycle"),
-            &String::from_str(&env, "health"),
+            &CoverageType::Health,
             &150,
             &75000,
         );
@@ -1197,7 +1199,7 @@ mod test {
         let policy_id = client.create_policy(
             &owner,
             &String::from_str(&env, "Health Insurance"),
-            &String::from_str(&env, "health"),
+            &CoverageType::Health,
             &100,
             &50000,
         );
@@ -1424,7 +1426,7 @@ mod test {
         let policy_id = client.create_policy(
             &owner,
             &String::from_str(&env, "Health Plan"),
-            &String::from_str(&env, "health"),
+            &CoverageType::Health,
             &150,
             &50000,
         );
