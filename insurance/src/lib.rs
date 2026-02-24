@@ -872,7 +872,7 @@ impl Insurance {
 #[cfg(test)]
 mod test {
     use super::*;
-    use soroban_sdk::testutils::{Address as _, Events};
+    use soroban_sdk::testutils::{Address as _, Events, Ledger};
 
     #[test]
     fn test_create_policy_invalid_premium() {
@@ -1197,5 +1197,362 @@ mod test {
         assert_ne!(total_a, 0); // owner_a has policies
         assert_ne!(total_b, 0); // owner_b has policies
         assert_eq!(total_a, total_b); // Both have same total but different policies
+    }
+
+    // ============================================================================
+    // Time-Based Payment Date Tests
+    // ============================================================================
+    // These tests verify that next_payment_date is correctly calculated when
+    // policies are created and when premiums are paid, using explicit ledger
+    // time control to ensure billing cycles are accurate.
+
+    const PAYMENT_PERIOD_SECONDS: u64 = 30 * 86400; // 30 days in seconds = 2,592,000
+
+    fn set_time(env: &Env, timestamp: u64) {
+        let proto = env.ledger().protocol_version();
+        env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+            protocol_version: proto,
+            sequence_number: 1,
+            timestamp,
+            network_id: [0; 32],
+            base_reserve: 10,
+            min_temp_entry_ttl: 1,
+            min_persistent_entry_ttl: 1,
+            max_entry_ttl: 100000,
+        });
+    }
+
+    #[test]
+    fn test_initial_payment_date_calculation() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, Insurance);
+        let client = InsuranceClient::new(&env, &contract_id);
+        let owner = Address::generate(&env);
+
+        env.mock_all_auths();
+
+        // Set explicit creation time
+        let creation_time = 1_000_000u64;
+        set_time(&env, creation_time);
+
+        let policy_id = client
+            .create_policy(
+                &owner,
+                &String::from_str(&env, "Test Policy"),
+                &String::from_str(&env, "Health"),
+                &100,
+                &10000,
+            );
+
+        let policy = client.get_policy(&policy_id).unwrap();
+
+        // Verify next_payment_date is exactly creation_time + 30 days
+        let expected_next_payment = creation_time + PAYMENT_PERIOD_SECONDS;
+        assert_eq!(
+            policy.next_payment_date, expected_next_payment,
+            "Initial next_payment_date should be creation_time + 30 days"
+        );
+
+        // Verify the constant is correct (30 days = 2,592,000 seconds)
+        assert_eq!(PAYMENT_PERIOD_SECONDS, 2_592_000);
+    }
+
+    #[test]
+    fn test_payment_date_update_after_single_payment() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, Insurance);
+        let client = InsuranceClient::new(&env, &contract_id);
+        let owner = Address::generate(&env);
+
+        env.mock_all_auths();
+
+        // T0: Create policy at time 1,000,000
+        let t0 = 1_000_000u64;
+        set_time(&env, t0);
+
+        let policy_id = client
+            .create_policy(
+                &owner,
+                &String::from_str(&env, "Test Policy"),
+                &String::from_str(&env, "Health"),
+                &100,
+                &10000,
+            );
+
+        let initial_policy = client.get_policy(&policy_id).unwrap();
+        let initial_next_payment = initial_policy.next_payment_date;
+
+        // Verify initial next_payment_date is T0 + 30 days
+        assert_eq!(initial_next_payment, t0 + PAYMENT_PERIOD_SECONDS);
+
+        // T1: Advance time by 15 days and pay premium
+        let t1 = t0 + (15 * 86400); // 15 days later
+        set_time(&env, t1);
+
+        let success = client.pay_premium(&owner, &policy_id);
+        assert!(success);
+
+        let updated_policy = client.get_policy(&policy_id).unwrap();
+
+        // Verify next_payment_date is T1 + 30 days (not T0 + 30 days)
+        let expected_next_payment = t1 + PAYMENT_PERIOD_SECONDS;
+        assert_eq!(
+            updated_policy.next_payment_date, expected_next_payment,
+            "next_payment_date should be calculated from payment time (T1), not creation time (T0)"
+        );
+
+        // Verify it's different from the initial next_payment_date
+        assert_ne!(
+            updated_policy.next_payment_date, initial_next_payment,
+            "next_payment_date should have been updated"
+        );
+    }
+
+    #[test]
+    fn test_sequential_payment_date_updates() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, Insurance);
+        let client = InsuranceClient::new(&env, &contract_id);
+        let owner = Address::generate(&env);
+
+        env.mock_all_auths();
+
+        // T0: Create policy
+        let t0 = 1_000_000u64;
+        set_time(&env, t0);
+
+        let policy_id = client
+            .create_policy(
+                &owner,
+                &String::from_str(&env, "Test Policy"),
+                &String::from_str(&env, "Health"),
+                &100,
+                &10000,
+            );
+
+        let policy_after_creation = client.get_policy(&policy_id).unwrap();
+        assert_eq!(
+            policy_after_creation.next_payment_date,
+            t0 + PAYMENT_PERIOD_SECONDS,
+            "Initial next_payment_date should be T0 + 30 days"
+        );
+
+        // T1: First payment at 20 days after creation
+        let t1 = t0 + (20 * 86400);
+        set_time(&env, t1);
+
+        client.pay_premium(&owner, &policy_id);
+
+        let policy_after_first_payment = client.get_policy(&policy_id).unwrap();
+        let expected_after_first = t1 + PAYMENT_PERIOD_SECONDS;
+        assert_eq!(
+            policy_after_first_payment.next_payment_date, expected_after_first,
+            "After first payment, next_payment_date should be T1 + 30 days"
+        );
+
+        // T2: Second payment at 25 days after first payment
+        let t2 = t1 + (25 * 86400);
+        set_time(&env, t2);
+
+        client.pay_premium(&owner, &policy_id);
+
+        let policy_after_second_payment = client.get_policy(&policy_id).unwrap();
+        let expected_after_second = t2 + PAYMENT_PERIOD_SECONDS;
+        assert_eq!(
+            policy_after_second_payment.next_payment_date, expected_after_second,
+            "After second payment, next_payment_date should be T2 + 30 days"
+        );
+
+        // Verify each payment independently calculated from current timestamp
+        assert_ne!(
+            policy_after_first_payment.next_payment_date,
+            policy_after_second_payment.next_payment_date,
+            "Each payment should update next_payment_date independently"
+        );
+    }
+
+    #[test]
+    fn test_payment_period_constant_accuracy() {
+        // Verify the payment period constant is exactly 30 days in seconds
+        const SECONDS_PER_DAY: u64 = 86400;
+        const DAYS_IN_PERIOD: u64 = 30;
+
+        assert_eq!(
+            PAYMENT_PERIOD_SECONDS,
+            DAYS_IN_PERIOD * SECONDS_PER_DAY,
+            "Payment period should be exactly 30 days"
+        );
+
+        assert_eq!(
+            PAYMENT_PERIOD_SECONDS, 2_592_000,
+            "Payment period should be 2,592,000 seconds"
+        );
+    }
+
+    #[test]
+    fn test_time_advancement_mechanism() {
+        let env = Env::default();
+
+        // Test that set_time correctly updates the ledger timestamp
+        let timestamp1 = 1_000_000u64;
+        set_time(&env, timestamp1);
+        assert_eq!(env.ledger().timestamp(), timestamp1);
+
+        // Test advancing time
+        let timestamp2 = 2_000_000u64;
+        set_time(&env, timestamp2);
+        assert_eq!(env.ledger().timestamp(), timestamp2);
+
+        // Verify time can be set to any value
+        let timestamp3 = 5_000_000u64;
+        set_time(&env, timestamp3);
+        assert_eq!(env.ledger().timestamp(), timestamp3);
+    }
+
+    #[test]
+    fn test_payment_date_with_early_payment() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, Insurance);
+        let client = InsuranceClient::new(&env, &contract_id);
+        let owner = Address::generate(&env);
+
+        env.mock_all_auths();
+
+        // Create policy at T0
+        let t0 = 1_000_000u64;
+        set_time(&env, t0);
+
+        let policy_id = client
+            .create_policy(
+                &owner,
+                &String::from_str(&env, "Test Policy"),
+                &String::from_str(&env, "Health"),
+                &100,
+                &10000,
+            );
+
+        // Pay premium early (only 5 days after creation, before the 30-day due date)
+        let t_early = t0 + (5 * 86400);
+        set_time(&env, t_early);
+
+        client.pay_premium(&owner, &policy_id);
+
+        let policy = client.get_policy(&policy_id).unwrap();
+
+        // next_payment_date should be 30 days from the early payment time
+        let expected = t_early + PAYMENT_PERIOD_SECONDS;
+        assert_eq!(
+            policy.next_payment_date, expected,
+            "Early payment should set next_payment_date to 30 days from payment time"
+        );
+    }
+
+    #[test]
+    fn test_payment_date_with_late_payment() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, Insurance);
+        let client = InsuranceClient::new(&env, &contract_id);
+        let owner = Address::generate(&env);
+
+        env.mock_all_auths();
+
+        // Create policy at T0
+        let t0 = 1_000_000u64;
+        set_time(&env, t0);
+
+        let policy_id = client
+            .create_policy(
+                &owner,
+                &String::from_str(&env, "Test Policy"),
+                &String::from_str(&env, "Health"),
+                &100,
+                &10000,
+            );
+
+        let initial_policy = client.get_policy(&policy_id).unwrap();
+        let initial_due = initial_policy.next_payment_date;
+
+        // Pay premium late (35 days after creation, 5 days past due)
+        let t_late = t0 + (35 * 86400);
+        set_time(&env, t_late);
+
+        client.pay_premium(&owner, &policy_id);
+
+        let policy = client.get_policy(&policy_id).unwrap();
+
+        // next_payment_date should be 30 days from the late payment time
+        let expected = t_late + PAYMENT_PERIOD_SECONDS;
+        assert_eq!(
+            policy.next_payment_date, expected,
+            "Late payment should set next_payment_date to 30 days from payment time"
+        );
+
+        // Verify it's later than the original due date
+        assert!(
+            policy.next_payment_date > initial_due,
+            "Late payment should push next_payment_date beyond original due date"
+        );
+    }
+
+    #[test]
+    fn test_multiple_policies_independent_payment_dates() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, Insurance);
+        let client = InsuranceClient::new(&env, &contract_id);
+        let owner = Address::generate(&env);
+
+        env.mock_all_auths();
+
+        // Create first policy at T0
+        let t0 = 1_000_000u64;
+        set_time(&env, t0);
+
+        let policy_id1 = client
+            .create_policy(
+                &owner,
+                &String::from_str(&env, "Policy 1"),
+                &String::from_str(&env, "Health"),
+                &100,
+                &10000,
+            );
+
+        // Create second policy at T1 (10 days later)
+        let t1 = t0 + (10 * 86400);
+        set_time(&env, t1);
+
+        let policy_id2 = client
+            .create_policy(
+                &owner,
+                &String::from_str(&env, "Policy 2"),
+                &String::from_str(&env, "Life"),
+                &200,
+                &20000,
+            );
+
+        let policy1 = client.get_policy(&policy_id1).unwrap();
+        let policy2 = client.get_policy(&policy_id2).unwrap();
+
+        // Verify each policy has independent next_payment_date
+        assert_eq!(policy1.next_payment_date, t0 + PAYMENT_PERIOD_SECONDS);
+        assert_eq!(policy2.next_payment_date, t1 + PAYMENT_PERIOD_SECONDS);
+        assert_ne!(policy1.next_payment_date, policy2.next_payment_date);
+
+        // Pay premium for policy1 at T2
+        let t2 = t0 + (15 * 86400);
+        set_time(&env, t2);
+        client.pay_premium(&owner, &policy_id1);
+
+        let policy1_updated = client.get_policy(&policy_id1).unwrap();
+        let policy2_unchanged = client.get_policy(&policy_id2).unwrap();
+
+        // Verify policy1 was updated but policy2 was not
+        assert_eq!(
+            policy1_updated.next_payment_date,
+            t2 + PAYMENT_PERIOD_SECONDS
+        );
+        assert_eq!(
+            policy2_unchanged.next_payment_date,
+            t1 + PAYMENT_PERIOD_SECONDS
+        );
     }
 }
