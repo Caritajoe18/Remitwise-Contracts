@@ -58,7 +58,7 @@
 
 use soroban_sdk::{
     contract, contractclient, contracterror, contractimpl, contracttype, symbol_short, Address,
-    Env, Map, Symbol, Vec,
+    Env, Symbol, Vec,
 };
 
 #[cfg(test)]
@@ -279,6 +279,7 @@ pub struct OrchestratorAuditEntry {
 }
 
 // Storage TTL constants matching other Remitwise contracts
+#[allow(dead_code)]
 const INSTANCE_LIFETIME_THRESHOLD: u32 = 17280; // ~1 day
 const INSTANCE_BUMP_AMOUNT: u32 = 518400; // ~30 days
 
