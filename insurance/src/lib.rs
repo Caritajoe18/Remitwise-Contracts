@@ -616,6 +616,10 @@ impl Insurance {
         }
 
         policy.active = false;
+        policies.set(policy_id, policy.clone());
+        env.storage()
+            .instance()
+            .set(&symbol_short!("POLICIES"), &policies);
 
         let event = PolicyDeactivatedEvent {
             policy_id,
@@ -628,10 +632,6 @@ impl Insurance {
             (policy_id, caller),
         );
 
-        policies.set(policy_id, policy);
-        env.storage()
-            .instance()
-            .set(&symbol_short!("POLICIES"), &policies);
         true
     }
 
