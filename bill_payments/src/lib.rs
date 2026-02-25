@@ -57,6 +57,7 @@ pub mod pause_functions {
 
 const CONTRACT_VERSION: u32 = 1;
 const MAX_BATCH_SIZE: u32 = 50;
+const STORAGE_UNPAID_TOTALS: Symbol = symbol_short!("UNPD_TOT");
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -401,6 +402,7 @@ impl BillPayments {
         env.storage()
             .instance()
             .set(&symbol_short!("NEXT_ID"), &next_id);
+        Self::adjust_unpaid_total(&env, &bill_owner, amount);
 
         RemitwiseEvents::emit(
             &env,
@@ -466,10 +468,14 @@ impl BillPayments {
         }
 
         let paid_amount = bill.amount;
+        let was_recurring = bill.recurring;
         bills.set(bill_id, bill);
         env.storage()
             .instance()
             .set(&symbol_short!("BILLS"), &bills);
+        if !was_recurring {
+            Self::adjust_unpaid_total(&env, &caller, -paid_amount);
+        }
 
         RemitwiseEvents::emit(
             &env,
@@ -762,10 +768,14 @@ impl BillPayments {
         if bill.owner != caller {
             return Err(Error::Unauthorized);
         }
+        let removed_unpaid_amount = if bill.paid { 0 } else { bill.amount };
         bills.remove(bill_id);
         env.storage()
             .instance()
             .set(&symbol_short!("BILLS"), &bills);
+        if removed_unpaid_amount > 0 {
+            Self::adjust_unpaid_total(&env, &caller, -removed_unpaid_amount);
+        }
         RemitwiseEvents::emit(
             &env,
             EventCategory::State,
@@ -975,6 +985,7 @@ impl BillPayments {
             .get(&symbol_short!("NEXT_ID"))
             .unwrap_or(0u32);
         let mut paid_count = 0u32;
+        let mut unpaid_delta = 0i128;
         for id in bill_ids.iter() {
             let mut bill = bills.get(id).ok_or(Error::BillNotFound)?;
             if bill.owner != caller || bill.paid {
@@ -1000,6 +1011,8 @@ impl BillPayments {
                     schedule_id: bill.schedule_id,
                 };
                 bills.set(next_id, next_bill);
+            } else {
+                unpaid_delta = unpaid_delta.saturating_sub(amount);
             }
             bills.set(id, bill);
             paid_count += 1;
@@ -1017,6 +1030,9 @@ impl BillPayments {
         env.storage()
             .instance()
             .set(&symbol_short!("BILLS"), &bills);
+        if unpaid_delta != 0 {
+            Self::adjust_unpaid_total(&env, &caller, unpaid_delta);
+        }
         Self::update_storage_stats(&env);
         RemitwiseEvents::emit(
             &env,
@@ -1029,6 +1045,12 @@ impl BillPayments {
     }
 
     pub fn get_total_unpaid(env: Env, owner: Address) -> i128 {
+        if let Some(totals) = Self::get_unpaid_totals_map(&env) {
+            if let Some(total) = totals.get(owner.clone()) {
+                return total;
+            }
+        }
+
         let bills: Map<u32, Bill> = env
             .storage()
             .instance()
@@ -1111,6 +1133,30 @@ impl BillPayments {
         env.storage()
             .instance()
             .set(&symbol_short!("STOR_STAT"), &stats);
+    }
+    fn get_unpaid_totals_map(env: &Env) -> Option<Map<Address, i128>> {
+        env.storage().instance().get(&STORAGE_UNPAID_TOTALS)
+    }
+
+    fn adjust_unpaid_total(env: &Env, owner: &Address, delta: i128) {
+        if delta == 0 {
+            return;
+        }
+        let mut totals: Map<Address, i128> = env
+            .storage()
+            .instance()
+            .get(&STORAGE_UNPAID_TOTALS)
+            .unwrap_or_else(|| Map::new(env));
+        let current = totals.get(owner.clone()).unwrap_or(0);
+        let next = if delta >= 0 {
+            current.saturating_add(delta)
+        } else {
+            current.saturating_sub(delta.saturating_abs())
+        };
+        totals.set(owner.clone(), next);
+        env.storage()
+            .instance()
+            .set(&STORAGE_UNPAID_TOTALS, &totals);
     }
 }
 

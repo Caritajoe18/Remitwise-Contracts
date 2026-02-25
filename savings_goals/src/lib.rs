@@ -146,6 +146,7 @@ pub struct ContributionItem {
 impl SavingsGoalContract {
     const STORAGE_NEXT_ID: Symbol = symbol_short!("NEXT_ID");
     const STORAGE_GOALS: Symbol = symbol_short!("GOALS");
+    const STORAGE_OWNER_GOAL_IDS: Symbol = symbol_short!("OWN_GOAL");
 
     // -----------------------------------------------------------------------
     // Internal helpers
@@ -388,6 +389,7 @@ impl SavingsGoalContract {
         env.storage()
             .instance()
             .set(&symbol_short!("NEXT_ID"), &next_id);
+        Self::append_owner_goal_id(&env, &owner, next_id);
 
         let event = GoalCreatedEvent {
             goal_id: next_id,
@@ -858,8 +860,14 @@ impl SavingsGoalContract {
 
         Self::extend_instance_ttl(&env);
         let mut goals: Map<u32, SavingsGoal> = Map::new(&env);
+        let mut owner_goal_ids: Map<Address, Vec<u32>> = Map::new(&env);
         for g in snapshot.goals.iter() {
-            goals.set(g.id, g);
+            goals.set(g.id, g.clone());
+            let mut ids = owner_goal_ids
+                .get(g.owner.clone())
+                .unwrap_or_else(|| Vec::new(&env));
+            ids.push_back(g.id);
+            owner_goal_ids.set(g.owner.clone(), ids);
         }
         env.storage()
             .instance()
@@ -867,6 +875,9 @@ impl SavingsGoalContract {
         env.storage()
             .instance()
             .set(&symbol_short!("NEXT_ID"), &snapshot.next_id);
+        env.storage()
+            .instance()
+            .set(&Self::STORAGE_OWNER_GOAL_IDS, &owner_goal_ids);
 
         Self::increment_nonce(&env, &caller);
         Self::append_audit(&env, symbol_short!("import"), &caller, true);
@@ -891,6 +902,93 @@ impl SavingsGoalContract {
         out
     }
 
+    fn require_nonce(env: &Env, address: &Address, expected: u64) {
+        let current = Self::get_nonce(env.clone(), address.clone());
+        if expected != current {
+            panic!("Invalid nonce: expected {}, got {}", current, expected);
+        }
+    }
+
+    fn increment_nonce(env: &Env, address: &Address) {
+        let current = Self::get_nonce(env.clone(), address.clone());
+        let next = current.checked_add(1).expect("nonce overflow");
+        let mut nonces: Map<Address, u64> = env
+            .storage()
+            .instance()
+            .get(&symbol_short!("NONCES"))
+            .unwrap_or_else(|| Map::new(env));
+        nonces.set(address.clone(), next);
+        env.storage()
+            .instance()
+            .set(&symbol_short!("NONCES"), &nonces);
+    }
+
+    fn compute_goals_checksum(version: u32, next_id: u32, goals: &Vec<SavingsGoal>) -> u64 {
+        let mut c = version as u64 + next_id as u64;
+        for i in 0..goals.len() {
+            if let Some(g) = goals.get(i) {
+                c = c
+                    .wrapping_add(g.id as u64)
+                    .wrapping_add(g.target_amount as u64)
+                    .wrapping_add(g.current_amount as u64);
+            }
+        }
+        c.wrapping_mul(31)
+    }
+
+    fn append_audit(env: &Env, operation: Symbol, caller: &Address, success: bool) {
+        let timestamp = env.ledger().timestamp();
+        let mut log: Vec<AuditEntry> = env
+            .storage()
+            .instance()
+            .get(&symbol_short!("AUDIT"))
+            .unwrap_or_else(|| Vec::new(env));
+        if log.len() >= MAX_AUDIT_ENTRIES {
+            let mut new_log = Vec::new(env);
+            for i in 1..log.len() {
+                if let Some(entry) = log.get(i) {
+                    new_log.push_back(entry);
+                }
+            }
+            log = new_log;
+        }
+        log.push_back(AuditEntry {
+            operation,
+            caller: caller.clone(),
+            timestamp,
+            success,
+        });
+        env.storage().instance().set(&symbol_short!("AUDIT"), &log);
+    }
+
+    fn get_owner_goal_ids_map(env: &Env) -> Option<Map<Address, Vec<u32>>> {
+        env.storage().instance().get(&Self::STORAGE_OWNER_GOAL_IDS)
+    }
+
+    fn append_owner_goal_id(env: &Env, owner: &Address, goal_id: u32) {
+        let mut owner_goal_ids: Map<Address, Vec<u32>> = env
+            .storage()
+            .instance()
+            .get(&Self::STORAGE_OWNER_GOAL_IDS)
+            .unwrap_or_else(|| Map::new(env));
+        let mut ids = owner_goal_ids
+            .get(owner.clone())
+            .unwrap_or_else(|| Vec::new(env));
+        ids.push_back(goal_id);
+        owner_goal_ids.set(owner.clone(), ids);
+        env.storage()
+            .instance()
+            .set(&Self::STORAGE_OWNER_GOAL_IDS, &owner_goal_ids);
+    }
+
+    /// Extend the TTL of instance storage
+    fn extend_instance_ttl(env: &Env) {
+        env.storage()
+            .instance()
+            .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+    }
+
+    /// Set time-lock on a goal
     pub fn set_time_lock(env: Env, caller: Address, goal_id: u32, unlock_date: u64) -> bool {
         caller.require_auth();
         Self::extend_instance_ttl(&env);
@@ -1198,75 +1296,6 @@ impl SavingsGoalContract {
             .get(&symbol_short!("SAV_SCH"))
             .unwrap_or_else(|| Map::new(&env));
         schedules.get(schedule_id)
-    }
-
-    // -----------------------------------------------------------------------
-    // Private helpers
-    // -----------------------------------------------------------------------
-
-    fn require_nonce(env: &Env, address: &Address, expected: u64) {
-        let current = Self::get_nonce(env.clone(), address.clone());
-        if expected != current {
-            panic!("Invalid nonce: expected {}, got {}", current, expected);
-        }
-    }
-
-    fn increment_nonce(env: &Env, address: &Address) {
-        let current = Self::get_nonce(env.clone(), address.clone());
-        let next = current.checked_add(1).expect("nonce overflow");
-        let mut nonces: Map<Address, u64> = env
-            .storage()
-            .instance()
-            .get(&symbol_short!("NONCES"))
-            .unwrap_or_else(|| Map::new(env));
-        nonces.set(address.clone(), next);
-        env.storage()
-            .instance()
-            .set(&symbol_short!("NONCES"), &nonces);
-    }
-
-    fn compute_goals_checksum(version: u32, next_id: u32, goals: &Vec<SavingsGoal>) -> u64 {
-        let mut c = version as u64 + next_id as u64;
-        for i in 0..goals.len() {
-            if let Some(g) = goals.get(i) {
-                c = c
-                    .wrapping_add(g.id as u64)
-                    .wrapping_add(g.target_amount as u64)
-                    .wrapping_add(g.current_amount as u64);
-            }
-        }
-        c.wrapping_mul(31)
-    }
-
-    fn append_audit(env: &Env, operation: Symbol, caller: &Address, success: bool) {
-        let timestamp = env.ledger().timestamp();
-        let mut log: Vec<AuditEntry> = env
-            .storage()
-            .instance()
-            .get(&symbol_short!("AUDIT"))
-            .unwrap_or_else(|| Vec::new(env));
-        if log.len() >= MAX_AUDIT_ENTRIES {
-            let mut new_log = Vec::new(env);
-            for i in 1..log.len() {
-                if let Some(entry) = log.get(i) {
-                    new_log.push_back(entry);
-                }
-            }
-            log = new_log;
-        }
-        log.push_back(AuditEntry {
-            operation,
-            caller: caller.clone(),
-            timestamp,
-            success,
-        });
-        env.storage().instance().set(&symbol_short!("AUDIT"), &log);
-    }
-
-    fn extend_instance_ttl(env: &Env) {
-        env.storage()
-            .instance()
-            .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
     }
 }
 
