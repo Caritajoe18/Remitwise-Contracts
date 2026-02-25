@@ -140,6 +140,9 @@ pub struct ContributionItem {
     pub amount: i128,
 }
 
+#[contract]
+pub struct SavingsGoalContract;
+
 #[contractimpl]
 impl SavingsGoalContract {
     const STORAGE_NEXT_ID: Symbol = symbol_short!("NEXT_ID");
