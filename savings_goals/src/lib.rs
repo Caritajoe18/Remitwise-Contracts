@@ -432,7 +432,7 @@ impl SavingsGoalContract {
 
         if goal.owner != caller {
             Self::append_audit(&env, symbol_short!("add"), &caller, false);
-            panic!("Goal not found");
+            panic!("Only the goal owner can add funds");
         }
 
         goal.current_amount = goal.current_amount.checked_add(amount).expect("overflow");
