@@ -1131,3 +1131,162 @@ fn test_multiple_policies_same_owner() {
     let total = client.get_total_monthly_premium(&owner);
     assert_eq!(total, 0);
 }
+
+// ══════════════════════════════════════════════════════════════════════════
+// Time & Ledger Drift Resilience Tests (#158)
+//
+// Assumptions documented here:
+//  - execute_due_premium_schedules fires when schedule.next_due <= current_time
+//    (inclusive: executes exactly at next_due).
+//  - next_payment_date is set to env.ledger().timestamp() + 30 * 86400 at
+//    execution time, anchored to actual payment time not original due date.
+//  - Stellar ledger timestamps are monotonically increasing in production.
+//    After execution next_due advances by the interval, guarding against
+//    re-execution even if ledger time were set backward.
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Premium schedule must NOT execute one second before next_due.
+#[test]
+fn test_time_drift_premium_schedule_not_executed_before_next_due() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, Insurance);
+    let client = InsuranceClient::new(&env, &contract_id);
+    let owner = Address::generate(&env);
+
+    env.mock_all_auths();
+    let next_due = 5000u64;
+    set_time(&env, 1000);
+
+    let policy_id = client.create_policy(
+        &owner,
+        &String::from_str(&env, "Life Cover"),
+        &String::from_str(&env, "life"),
+        &200,
+        &100000,
+    );
+    client.create_premium_schedule(&owner, &policy_id, &next_due, &2592000);
+
+    set_time(&env, next_due - 1);
+    let executed = client.execute_due_premium_schedules();
+    assert_eq!(
+        executed.len(),
+        0,
+        "Premium schedule must not execute one second before next_due"
+    );
+}
+
+/// Premium schedule must execute exactly at next_due (inclusive boundary).
+#[test]
+fn test_time_drift_premium_schedule_executes_at_exact_next_due() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, Insurance);
+    let client = InsuranceClient::new(&env, &contract_id);
+    let owner = Address::generate(&env);
+
+    env.mock_all_auths();
+    let next_due = 5000u64;
+    set_time(&env, 1000);
+
+    let policy_id = client.create_policy(
+        &owner,
+        &String::from_str(&env, "Health Plan"),
+        &String::from_str(&env, "health"),
+        &150,
+        &75000,
+    );
+    let schedule_id = client.create_premium_schedule(&owner, &policy_id, &next_due, &2592000);
+
+    set_time(&env, next_due);
+    let executed = client.execute_due_premium_schedules();
+    assert_eq!(
+        executed.len(),
+        1,
+        "Premium schedule must execute exactly at next_due"
+    );
+    assert_eq!(executed.get(0).unwrap(), schedule_id);
+
+    let policy = client.get_policy(&policy_id).unwrap();
+    assert_eq!(
+        policy.next_payment_date,
+        next_due + 30 * 86400,
+        "next_payment_date must be current_time + 30 days"
+    );
+}
+
+/// next_payment_date is anchored to actual payment time, not original next_due.
+/// A late payment pushes next_payment_date further than an on-time payment would.
+#[test]
+fn test_time_drift_next_payment_date_uses_actual_payment_time() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, Insurance);
+    let client = InsuranceClient::new(&env, &contract_id);
+    let owner = Address::generate(&env);
+
+    env.mock_all_auths();
+    let next_due = 5000u64;
+    let late_payment_time = next_due + 7 * 86400; // paid 7 days late
+    set_time(&env, 1000);
+
+    let policy_id = client.create_policy(
+        &owner,
+        &String::from_str(&env, "Property Plan"),
+        &String::from_str(&env, "property"),
+        &300,
+        &200000,
+    );
+    client.create_premium_schedule(&owner, &policy_id, &next_due, &2592000);
+
+    set_time(&env, late_payment_time);
+    client.execute_due_premium_schedules();
+
+    let policy = client.get_policy(&policy_id).unwrap();
+    assert_eq!(
+        policy.next_payment_date,
+        late_payment_time + 30 * 86400,
+        "next_payment_date must be anchored to actual payment time"
+    );
+    assert!(
+        policy.next_payment_date > next_due + 30 * 86400,
+        "Late payment must push next_payment_date beyond on-time payment window"
+    );
+}
+
+/// After execution next_due advances; a call at a time still before the new
+/// next_due must not re-execute. Documents non-monotonic time assumption.
+#[test]
+fn test_time_drift_no_double_execution_after_schedule_advances() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, Insurance);
+    let client = InsuranceClient::new(&env, &contract_id);
+    let owner = Address::generate(&env);
+
+    env.mock_all_auths();
+    let next_due = 5000u64;
+    let interval = 2_592_000u64;
+    set_time(&env, 1000);
+
+    let policy_id = client.create_policy(
+        &owner,
+        &String::from_str(&env, "Auto Cover"),
+        &String::from_str(&env, "auto"),
+        &100,
+        &50000,
+    );
+    client.create_premium_schedule(&owner, &policy_id, &next_due, &interval);
+
+    // First execution at next_due
+    set_time(&env, next_due);
+    let executed = client.execute_due_premium_schedules();
+    assert_eq!(executed.len(), 1);
+
+    // Between old next_due and new next_due: no re-execution
+    // NOTE: In production, ledger time is monotonic. This also covers repeated
+    //       calls within the same ledger window before the next cycle.
+    set_time(&env, next_due + 1000);
+    let executed_again = client.execute_due_premium_schedules();
+    assert_eq!(
+        executed_again.len(),
+        0,
+        "Schedule must not re-execute before the new next_due"
+    );
+}
