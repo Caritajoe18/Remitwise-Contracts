@@ -57,6 +57,7 @@ pub mod pause_functions {
 
 const CONTRACT_VERSION: u32 = 1;
 const MAX_BATCH_SIZE: u32 = 50;
+const STORAGE_UNPAID_TOTALS: Symbol = symbol_short!("UNPD_TOT");
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -401,6 +402,7 @@ impl BillPayments {
         env.storage()
             .instance()
             .set(&symbol_short!("NEXT_ID"), &next_id);
+        Self::adjust_unpaid_total(&env, &bill_owner, amount);
 
         RemitwiseEvents::emit(
             &env,
@@ -466,10 +468,14 @@ impl BillPayments {
         }
 
         let paid_amount = bill.amount;
+        let was_recurring = bill.recurring;
         bills.set(bill_id, bill);
         env.storage()
             .instance()
             .set(&symbol_short!("BILLS"), &bills);
+        if !was_recurring {
+            Self::adjust_unpaid_total(&env, &caller, -paid_amount);
+        }
 
         RemitwiseEvents::emit(
             &env,
@@ -762,10 +768,14 @@ impl BillPayments {
         if bill.owner != caller {
             return Err(Error::Unauthorized);
         }
+        let removed_unpaid_amount = if bill.paid { 0 } else { bill.amount };
         bills.remove(bill_id);
         env.storage()
             .instance()
             .set(&symbol_short!("BILLS"), &bills);
+        if removed_unpaid_amount > 0 {
+            Self::adjust_unpaid_total(&env, &caller, -removed_unpaid_amount);
+        }
         RemitwiseEvents::emit(
             &env,
             EventCategory::State,
@@ -975,6 +985,7 @@ impl BillPayments {
             .get(&symbol_short!("NEXT_ID"))
             .unwrap_or(0u32);
         let mut paid_count = 0u32;
+        let mut unpaid_delta = 0i128;
         for id in bill_ids.iter() {
             let mut bill = bills.get(id).ok_or(Error::BillNotFound)?;
             if bill.owner != caller || bill.paid {
@@ -1000,6 +1011,8 @@ impl BillPayments {
                     schedule_id: bill.schedule_id,
                 };
                 bills.set(next_id, next_bill);
+            } else {
+                unpaid_delta = unpaid_delta.saturating_sub(amount);
             }
             bills.set(id, bill);
             paid_count += 1;
@@ -1017,6 +1030,9 @@ impl BillPayments {
         env.storage()
             .instance()
             .set(&symbol_short!("BILLS"), &bills);
+        if unpaid_delta != 0 {
+            Self::adjust_unpaid_total(&env, &caller, unpaid_delta);
+        }
         Self::update_storage_stats(&env);
         RemitwiseEvents::emit(
             &env,
@@ -1029,6 +1045,12 @@ impl BillPayments {
     }
 
     pub fn get_total_unpaid(env: Env, owner: Address) -> i128 {
+        if let Some(totals) = Self::get_unpaid_totals_map(&env) {
+            if let Some(total) = totals.get(owner.clone()) {
+                return total;
+            }
+        }
+
         let bills: Map<u32, Bill> = env
             .storage()
             .instance()
@@ -1111,6 +1133,30 @@ impl BillPayments {
         env.storage()
             .instance()
             .set(&symbol_short!("STOR_STAT"), &stats);
+    }
+    fn get_unpaid_totals_map(env: &Env) -> Option<Map<Address, i128>> {
+        env.storage().instance().get(&STORAGE_UNPAID_TOTALS)
+    }
+
+    fn adjust_unpaid_total(env: &Env, owner: &Address, delta: i128) {
+        if delta == 0 {
+            return;
+        }
+        let mut totals: Map<Address, i128> = env
+            .storage()
+            .instance()
+            .get(&STORAGE_UNPAID_TOTALS)
+            .unwrap_or_else(|| Map::new(env));
+        let current = totals.get(owner.clone()).unwrap_or(0);
+        let next = if delta >= 0 {
+            current.saturating_add(delta)
+        } else {
+            current.saturating_sub(delta.saturating_abs())
+        };
+        totals.set(owner.clone(), next);
+        env.storage()
+            .instance()
+            .set(&STORAGE_UNPAID_TOTALS, &totals);
     }
 }
 
@@ -1239,6 +1285,178 @@ mod test {
         for bill in page.items.iter() {
             assert_eq!(bill.owner, owner_a);
         }
+    }
+
+    #[test]
+    fn test_get_unpaid_bills_owner_isolation_bidirectional() {
+        let env = make_env();
+        env.mock_all_auths();
+        let cid = env.register_contract(None, BillPayments);
+        let client = BillPaymentsClient::new(&env, &cid);
+        let owner_a = Address::generate(&env);
+        let owner_b = Address::generate(&env);
+
+        setup_bills(&env, &client, &owner_a, 2);
+        setup_bills(&env, &client, &owner_b, 3);
+
+        // owner_a sees only their own bills
+        let page_a = client.get_unpaid_bills(&owner_a, &0, &10);
+        assert_eq!(page_a.count, 2);
+        for bill in page_a.items.iter() {
+            assert_eq!(
+                bill.owner, owner_a,
+                "owner_a page must not contain owner_b bills"
+            );
+        }
+
+        // owner_b sees only their own bills
+        let page_b = client.get_unpaid_bills(&owner_b, &0, &10);
+        assert_eq!(page_b.count, 3);
+        for bill in page_b.items.iter() {
+            assert_eq!(
+                bill.owner, owner_b,
+                "owner_b page must not contain owner_a bills"
+            );
+        }
+    }
+
+    #[test]
+    fn test_get_unpaid_bills_owner_isolation_after_one_pays() {
+        // If owner_a pays their bill, owner_b's unpaid bills are unaffected
+        let env = make_env();
+        env.mock_all_auths();
+        let cid = env.register_contract(None, BillPayments);
+        let client = BillPaymentsClient::new(&env, &cid);
+        let owner_a = Address::generate(&env);
+        let owner_b = Address::generate(&env);
+
+        let ids_a = setup_bills(&env, &client, &owner_a, 2);
+        setup_bills(&env, &client, &owner_b, 2);
+
+        // owner_a pays one of their bills
+        client.pay_bill(&owner_a, &ids_a.get(0).unwrap());
+
+        // owner_a now has 1 unpaid
+        let page_a = client.get_unpaid_bills(&owner_a, &0, &10);
+        assert_eq!(page_a.count, 1);
+        for bill in page_a.items.iter() {
+            assert_eq!(bill.owner, owner_a, "Should only see owner_a bills");
+            assert!(!bill.paid, "Should only see unpaid bills");
+        }
+
+        // owner_b still has 2 unpaid — unaffected by owner_a's payment
+        let page_b = client.get_unpaid_bills(&owner_b, &0, &10);
+        assert_eq!(page_b.count, 2);
+        for bill in page_b.items.iter() {
+            assert_eq!(bill.owner, owner_b, "Should only see owner_b bills");
+        }
+    }
+
+    #[test]
+    fn test_get_unpaid_bills_owner_isolation_one_owner_no_bills() {
+        // owner_b has bills but owner_a has none — owner_a gets empty page
+        let env = make_env();
+        env.mock_all_auths();
+        let cid = env.register_contract(None, BillPayments);
+        let client = BillPaymentsClient::new(&env, &cid);
+        let owner_a = Address::generate(&env);
+        let owner_b = Address::generate(&env);
+
+        // Only owner_b creates bills
+        setup_bills(&env, &client, &owner_b, 3);
+
+        let page_a = client.get_unpaid_bills(&owner_a, &0, &10);
+        assert_eq!(page_a.count, 0, "owner_a should see no bills");
+        assert_eq!(page_a.next_cursor, 0);
+
+        let page_b = client.get_unpaid_bills(&owner_b, &0, &10);
+        assert_eq!(page_b.count, 3, "owner_b should see all their bills");
+    }
+
+    #[test]
+    fn test_get_unpaid_bills_owner_isolation_all_paid_other_owner_unpaid() {
+        // owner_a pays all their bills — owner_b's unpaid still isolated correctly
+        let env = make_env();
+        env.mock_all_auths();
+        let cid = env.register_contract(None, BillPayments);
+        let client = BillPaymentsClient::new(&env, &cid);
+        let owner_a = Address::generate(&env);
+        let owner_b = Address::generate(&env);
+
+        let ids_a = setup_bills(&env, &client, &owner_a, 3);
+        setup_bills(&env, &client, &owner_b, 2);
+
+        // owner_a pays all their bills
+        for id in ids_a.iter() {
+            client.pay_bill(&owner_a, &id);
+        }
+
+        // owner_a has zero unpaid
+        let page_a = client.get_unpaid_bills(&owner_a, &0, &10);
+        assert_eq!(page_a.count, 0, "owner_a should have no unpaid bills left");
+
+        // owner_b still has 2 unpaid — not polluted by owner_a's paid bills
+        let page_b = client.get_unpaid_bills(&owner_b, &0, &10);
+        assert_eq!(page_b.count, 2);
+        for bill in page_b.items.iter() {
+            assert_eq!(bill.owner, owner_b);
+            assert!(!bill.paid);
+        }
+    }
+
+    #[test]
+    fn test_get_unpaid_bills_owner_isolation_pagination_does_not_leak() {
+        // With many owners, paginating through owner_a's results never leaks owner_b's bills
+        let env = make_env();
+        env.mock_all_auths();
+        let cid = env.register_contract(None, BillPayments);
+        let client = BillPaymentsClient::new(&env, &cid);
+        let owner_a = Address::generate(&env);
+        let owner_b = Address::generate(&env);
+
+        // Interleave bills: a, b, a, b, a, b ...
+        for i in 0..4u32 {
+            client.create_bill(
+                &owner_a,
+                &String::from_str(&env, "Bill A"),
+                &(100i128 * (i as i128 + 1)),
+                &(env.ledger().timestamp() + 86400 * (i as u64 + 1)),
+                &false,
+                &0,
+            );
+            client.create_bill(
+                &owner_b,
+                &String::from_str(&env, "Bill B"),
+                &(200i128 * (i as i128 + 1)),
+                &(env.ledger().timestamp() + 86400 * (i as u64 + 1)),
+                &false,
+                &0,
+            );
+        }
+
+        // Paginate through owner_a with small page size
+        let mut all_a_bills: soroban_sdk::Vec<Bill> = soroban_sdk::Vec::new(&env);
+        let mut cursor = 0u32;
+        loop {
+            let page = client.get_unpaid_bills(&owner_a, &cursor, &2);
+            for bill in page.items.iter() {
+                assert_eq!(
+                    bill.owner, owner_a,
+                    "Paginated result must never contain owner_b's bill"
+                );
+                all_a_bills.push_back(bill);
+            }
+            if page.next_cursor == 0 {
+                break;
+            }
+            cursor = page.next_cursor;
+        }
+
+        assert_eq!(
+            all_a_bills.len(),
+            4,
+            "owner_a should have exactly 4 bills across all pages"
+        );
     }
 
     // --- get_overdue_bills ---
