@@ -1,7 +1,6 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, Map, String,
-    Symbol, Vec,
+    contract, contractimpl, contracttype, symbol_short, Address, Env, Map, String, Symbol, Vec,
 };
 
 // Event topics
@@ -98,16 +97,6 @@ pub struct PremiumSchedule {
     pub created_at: u64,
     pub last_executed: Option<u64>,
     pub missed_count: u32,
-}
-
-#[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-#[repr(u32)]
-pub enum InsuranceError {
-    InvalidAmount = 1,
-    Unauthorized = 2,
-    PolicyNotFound = 3,
-    PolicyInactive = 4,
 }
 
 #[contracttype]
@@ -396,8 +385,6 @@ impl Insurance {
         owner.require_auth();
         Self::require_not_paused(&env, pause_functions::CREATE_POLICY);
 
-        if monthly_premium <= 0 || coverage_amount <= 0 {
-            return Err(InsuranceError::InvalidAmount);
         if monthly_premium <= 0 {
             return Err(InsuranceError::InvalidPremium);
         }
@@ -461,7 +448,6 @@ impl Insurance {
         Ok(next_id)
     }
 
-    pub fn pay_premium(env: Env, caller: Address, policy_id: u32) -> Result<bool, InsuranceError> {
     /// Pays a premium for a specific policy.
     ///
     /// # Arguments
@@ -489,7 +475,6 @@ impl Insurance {
             .get(&symbol_short!("POLICIES"))
             .unwrap_or_else(|| Map::new(&env));
 
-        let mut policy = policies.get(policy_id).ok_or(InsuranceError::PolicyNotFound)?;
         let mut policy = match policies.get(policy_id) {
             Some(p) => p,
             None => return Err(InsuranceError::PolicyNotFound),
@@ -523,7 +508,6 @@ impl Insurance {
             (policy_id, caller),
         );
 
-        Ok(true)
         Ok(())
     }
 
@@ -718,7 +702,11 @@ impl Insurance {
         total
     }
 
-    pub fn deactivate_policy(env: Env, caller: Address, policy_id: u32) -> Result<bool, InsuranceError> {
+    pub fn deactivate_policy(
+        env: Env,
+        caller: Address,
+        policy_id: u32,
+    ) -> Result<bool, InsuranceError> {
         caller.require_auth();
         Self::require_not_paused(&env, pause_functions::DEACTIVATE);
         Self::extend_instance_ttl(&env);
@@ -729,7 +717,9 @@ impl Insurance {
             .get(&symbol_short!("POLICIES"))
             .unwrap_or_else(|| Map::new(&env));
 
-        let mut policy = policies.get(policy_id).ok_or(InsuranceError::PolicyNotFound)?;
+        let mut policy = policies
+            .get(policy_id)
+            .ok_or(InsuranceError::PolicyNotFound)?;
 
         if policy.owner != caller {
             return Err(InsuranceError::Unauthorized);
@@ -1243,8 +1233,6 @@ mod test_events {
     // --- existing event tests (unchanged) ---
 
     #[test]
-<<<<<<< HEAD
-=======
     fn test_create_policy_emits_event_exists() {
         let env = make_env();
         env.mock_all_auths();
@@ -1266,7 +1254,6 @@ mod test_events {
     }
 
     #[test]
->>>>>>> upstream/main
     fn test_pay_premium_emits_event() {
         let env = make_env();
         env.mock_all_auths();

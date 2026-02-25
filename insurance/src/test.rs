@@ -1,9 +1,9 @@
 use super::*;
+use crate::InsuranceError;
 use soroban_sdk::{
     testutils::{Address as AddressTrait, Ledger, LedgerInfo},
     Address, Env, String,
 };
-use crate::InsuranceError;
 
 fn set_time(env: &Env, timestamp: u64) {
     let proto = env.ledger().protocol_version();
@@ -50,7 +50,6 @@ fn test_create_policy() {
 }
 
 #[test]
-<<<<<<< HEAD
 fn test_create_policy_invalid_premium() {
     let env = Env::default();
     let contract_id = env.register_contract(None, Insurance);
@@ -66,7 +65,7 @@ fn test_create_policy_invalid_premium() {
         &0,
         &10000,
     );
-    assert_eq!(result, Err(Ok(InsuranceError::InvalidAmount)));
+    assert_eq!(result, Err(Ok(InsuranceError::InvalidPremium)));
 }
 
 #[test]
@@ -85,12 +84,10 @@ fn test_create_policy_invalid_coverage() {
         &100,
         &0,
     );
-    assert_eq!(result, Err(Ok(InsuranceError::InvalidAmount)));
+    assert_eq!(result, Err(Ok(InsuranceError::InvalidCoverage)));
 }
 
 #[test]
-=======
->>>>>>> upstream/main
 fn test_pay_premium() {
     let env = Env::default();
     let contract_id = env.register_contract(None, Insurance);
@@ -128,7 +125,6 @@ fn test_pay_premium() {
 }
 
 #[test]
-<<<<<<< HEAD
 fn test_pay_premium_unauthorized() {
     let env = Env::default();
     let contract_id = env.register_contract(None, Insurance);
@@ -152,8 +148,6 @@ fn test_pay_premium_unauthorized() {
 }
 
 #[test]
-=======
->>>>>>> upstream/main
 fn test_deactivate_policy() {
     let env = Env::default();
     let contract_id = env.register_contract(None, Insurance);
@@ -212,11 +206,7 @@ fn test_get_active_policies() {
     // Deactivate P2
     client.deactivate_policy(&owner, &p2);
 
-<<<<<<< HEAD
-    let active = client.get_active_policies(&owner, &0, &10);
-=======
     let active = client.get_active_policies(&owner, &0, &DEFAULT_PAGE_LIMIT);
->>>>>>> upstream/main
     assert_eq!(active.items.len(), 2);
 
     // Check specific IDs if needed, but length 2 confirms one was filtered
@@ -251,12 +241,6 @@ fn test_get_active_policies_excludes_deactivated() {
     client.deactivate_policy(&owner, &policy_id_1);
 
     // get_active_policies must return only the still-active policy
-<<<<<<< HEAD
-    let active = client.get_active_policies(&owner, &0, &10);
-    assert_eq!(active.items.len(), 1, "get_active_policies must return exactly one policy");
-    let only = active.items.get(0).unwrap();
-    assert_eq!(only.id, policy_id_2, "the returned policy must be the active one (policy_id_2)");
-=======
     let active = client.get_active_policies(&owner, &0, &DEFAULT_PAGE_LIMIT);
     assert_eq!(
         active.items.len(),
@@ -268,7 +252,6 @@ fn test_get_active_policies_excludes_deactivated() {
         only.id, policy_id_2,
         "the returned policy must be the active one (policy_id_2)"
     );
->>>>>>> upstream/main
     assert!(only.active, "returned policy must have active == true");
 }
 
