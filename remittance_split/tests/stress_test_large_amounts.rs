@@ -272,9 +272,9 @@ fn test_checked_arithmetic_prevents_silent_overflow() {
 
     // Test values that would overflow with unchecked arithmetic
     let dangerous_amounts = vec![
-        i128::MAX / 40,  // Will overflow when multiplied by 50
-        i128::MAX / 30,  // Will overflow when multiplied by 50
-        i128::MAX,       // Will definitely overflow
+        i128::MAX / 40, // Will overflow when multiplied by 50
+        i128::MAX / 30, // Will overflow when multiplied by 50
+        i128::MAX,      // Will definitely overflow
     ];
 
     for amount in dangerous_amounts {
