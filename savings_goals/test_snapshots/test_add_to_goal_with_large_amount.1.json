@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 3,
+    "address": 2,
     "nonce": 0
   },
   "auth": [
@@ -17,16 +17,16 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "string": "Owner A Goal"
+                  "string": "Large Goal"
                 },
                 {
                   "i128": {
-                    "hi": 0,
-                    "lo": 10000
+                    "hi": 4611686018427387903,
+                    "lo": 18446744073709551615
                   }
                 },
                 {
-                  "u64": 1800000
+                  "u64": 2000000
                 }
               ]
             }
@@ -35,13 +35,40 @@
         }
       ]
     ],
-    [],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "function_name": "add_to_goal",
+              "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                },
+                {
+                  "u32": 1
+                },
+                {
+                  "i128": {
+                    "hi": 2305843009213693951,
+                    "lo": 18446744073709551615
+                  }
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
     []
   ],
   "ledger": {
     "protocol_version": 21,
-    "sequence_number": 1,
-    "timestamp": 1700000000,
+    "sequence_number": 0,
+    "timestamp": 0,
     "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
     "base_reserve": 0,
     "min_persistent_entry_ttl": 4096,
@@ -73,6 +100,51 @@
                     "storage": [
                       {
                         "key": {
+                          "symbol": "AUDIT"
+                        },
+                        "val": {
+                          "vec": [
+                            {
+                              "map": [
+                                {
+                                  "key": {
+                                    "symbol": "caller"
+                                  },
+                                  "val": {
+                                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                                  }
+                                },
+                                {
+                                  "key": {
+                                    "symbol": "operation"
+                                  },
+                                  "val": {
+                                    "symbol": "add"
+                                  }
+                                },
+                                {
+                                  "key": {
+                                    "symbol": "success"
+                                  },
+                                  "val": {
+                                    "bool": true
+                                  }
+                                },
+                                {
+                                  "key": {
+                                    "symbol": "timestamp"
+                                  },
+                                  "val": {
+                                    "u64": 0
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "key": {
                           "symbol": "GOALS"
                         },
                         "val": {
@@ -89,8 +161,8 @@
                                     },
                                     "val": {
                                       "i128": {
-                                        "hi": 0,
-                                        "lo": 0
+                                        "hi": 2305843009213693951,
+                                        "lo": 18446744073709551615
                                       }
                                     }
                                   },
@@ -115,7 +187,7 @@
                                       "symbol": "name"
                                     },
                                     "val": {
-                                      "string": "Owner A Goal"
+                                      "string": "Large Goal"
                                     }
                                   },
                                   {
@@ -132,8 +204,8 @@
                                     },
                                     "val": {
                                       "i128": {
-                                        "hi": 0,
-                                        "lo": 10000
+                                        "hi": 4611686018427387903,
+                                        "lo": 18446744073709551615
                                       }
                                     }
                                   },
@@ -142,7 +214,7 @@
                                       "symbol": "target_date"
                                     },
                                     "val": {
-                                      "u64": 1800000
+                                      "u64": 2000000
                                     }
                                   },
                                   {
@@ -193,7 +265,7 @@
             },
             "ext": "v0"
           },
-          518401
+          518400
         ]
       ],
       [
@@ -226,7 +298,40 @@
             },
             "ext": "v0"
           },
-          6312000
+          6311999
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+            "key": {
+              "ledger_key_nonce": {
+                "nonce": 5541220902715666415
+              }
+            },
+            "durability": "temporary"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+                "key": {
+                  "ledger_key_nonce": {
+                    "nonce": 5541220902715666415
+                  }
+                },
+                "durability": "temporary",
+                "val": "void"
+              }
+            },
+            "ext": "v0"
+          },
+          6311999
         ]
       ],
       [
@@ -247,7 +352,7 @@
             },
             "ext": "v0"
           },
-          518401
+          518400
         ]
       ]
     ]
@@ -277,16 +382,16 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "string": "Owner A Goal"
+                  "string": "Large Goal"
                 },
                 {
                   "i128": {
-                    "hi": 0,
-                    "lo": 10000
+                    "hi": 4611686018427387903,
+                    "lo": 18446744073709551615
                   }
                 },
                 {
-                  "u64": 1800000
+                  "u64": 2000000
                 }
               ]
             }
@@ -322,7 +427,7 @@
                     "symbol": "name"
                   },
                   "val": {
-                    "string": "Owner A Goal"
+                    "string": "Large Goal"
                   }
                 },
                 {
@@ -331,8 +436,8 @@
                   },
                   "val": {
                     "i128": {
-                      "hi": 0,
-                      "lo": 10000
+                      "hi": 4611686018427387903,
+                      "lo": 18446744073709551615
                     }
                   }
                 },
@@ -341,7 +446,7 @@
                     "symbol": "target_date"
                   },
                   "val": {
-                    "u64": 1800000
+                    "u64": 2000000
                   }
                 },
                 {
@@ -349,7 +454,7 @@
                     "symbol": "timestamp"
                   },
                   "val": {
-                    "u64": 1700000000
+                    "u64": 0
                   }
                 }
               ]
@@ -437,15 +542,114 @@
             "data": {
               "vec": [
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
                   "u32": 1
                 },
                 {
                   "i128": {
-                    "hi": 0,
-                    "lo": 500
+                    "hi": 2305843009213693951,
+                    "lo": 18446744073709551615
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "added"
+              }
+            ],
+            "data": {
+              "map": [
+                {
+                  "key": {
+                    "symbol": "amount"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 2305843009213693951,
+                      "lo": 18446744073709551615
+                    }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "goal_id"
+                  },
+                  "val": {
+                    "u32": 1
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "new_total"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 2305843009213693951,
+                      "lo": 18446744073709551615
+                    }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "timestamp"
+                  },
+                  "val": {
+                    "u64": 0
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "savings"
+              },
+              {
+                "vec": [
+                  {
+                    "symbol": "FundsAdded"
+                  }
+                ]
+              }
+            ],
+            "data": {
+              "vec": [
+                {
+                  "u32": 1
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                },
+                {
+                  "i128": {
+                    "hi": 2305843009213693951,
+                    "lo": 18446744073709551615
                   }
                 }
               ]
@@ -464,100 +668,17 @@
           "v0": {
             "topics": [
               {
-                "symbol": "log"
-              }
-            ],
-            "data": {
-              "vec": [
-                {
-                  "string": "caught panic 'Only the goal owner can add funds' from contract function 'Symbol(obj#63)'"
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                },
-                {
-                  "u32": 1
-                },
-                {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 500
-                  }
-                }
-              ]
-            }
-          }
-        }
-      },
-      "failed_call": true
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
-        "type_": "diagnostic",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "error"
+                "symbol": "fn_return"
               },
               {
-                "error": {
-                  "wasm_vm": "invalid_action"
-                }
+                "symbol": "add_to_goal"
               }
             ],
             "data": {
-              "string": "caught error from function"
-            }
-          }
-        }
-      },
-      "failed_call": true
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": null,
-        "type_": "diagnostic",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "error"
-              },
-              {
-                "error": {
-                  "wasm_vm": "invalid_action"
-                }
+              "i128": {
+                "hi": 2305843009213693951,
+                "lo": 18446744073709551615
               }
-            ],
-            "data": {
-              "vec": [
-                {
-                  "string": "contract try_call failed"
-                },
-                {
-                  "symbol": "add_to_goal"
-                },
-                {
-                  "vec": [
-                    {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                    },
-                    {
-                      "u32": 1
-                    },
-                    {
-                      "i128": {
-                        "hi": 0,
-                        "lo": 500
-                      }
-                    }
-                  ]
-                }
-              ]
             }
           }
         }
@@ -613,8 +734,8 @@
                   },
                   "val": {
                     "i128": {
-                      "hi": 0,
-                      "lo": 0
+                      "hi": 2305843009213693951,
+                      "lo": 18446744073709551615
                     }
                   }
                 },
@@ -639,7 +760,7 @@
                     "symbol": "name"
                   },
                   "val": {
-                    "string": "Owner A Goal"
+                    "string": "Large Goal"
                   }
                 },
                 {
@@ -656,8 +777,8 @@
                   },
                   "val": {
                     "i128": {
-                      "hi": 0,
-                      "lo": 10000
+                      "hi": 4611686018427387903,
+                      "lo": 18446744073709551615
                     }
                   }
                 },
@@ -666,7 +787,7 @@
                     "symbol": "target_date"
                   },
                   "val": {
-                    "u64": 1800000
+                    "u64": 2000000
                   }
                 },
                 {

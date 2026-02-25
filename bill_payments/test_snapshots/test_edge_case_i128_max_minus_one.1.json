@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 3,
+    "address": 2,
     "nonce": 0
   },
   "auth": [
@@ -11,22 +11,31 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "create_goal",
+              "function_name": "create_bill",
               "args": [
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "string": "Owner A Goal"
+                  "string": "Edge Case"
                 },
                 {
                   "i128": {
-                    "hi": 0,
-                    "lo": 10000
+                    "hi": 9223372036854775807,
+                    "lo": 18446744073709551614
                   }
                 },
                 {
-                  "u64": 1800000
+                  "u64": 1000000
+                },
+                {
+                  "bool": false
+                },
+                {
+                  "u32": 0
+                },
+                {
+                  "string": "XLM"
                 }
               ]
             }
@@ -35,13 +44,12 @@
         }
       ]
     ],
-    [],
     []
   ],
   "ledger": {
     "protocol_version": 21,
-    "sequence_number": 1,
-    "timestamp": 1700000000,
+    "sequence_number": 0,
+    "timestamp": 0,
     "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
     "base_reserve": 0,
     "min_persistent_entry_ttl": 4096,
@@ -73,7 +81,7 @@
                     "storage": [
                       {
                         "key": {
-                          "symbol": "GOALS"
+                          "symbol": "BILLS"
                         },
                         "val": {
                           "map": [
@@ -85,13 +93,45 @@
                                 "map": [
                                   {
                                     "key": {
-                                      "symbol": "current_amount"
+                                      "symbol": "amount"
                                     },
                                     "val": {
                                       "i128": {
-                                        "hi": 0,
-                                        "lo": 0
+                                        "hi": 9223372036854775807,
+                                        "lo": 18446744073709551614
                                       }
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "symbol": "created_at"
+                                    },
+                                    "val": {
+                                      "u64": 0
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "symbol": "currency"
+                                    },
+                                    "val": {
+                                      "string": "XLM"
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "symbol": "due_date"
+                                    },
+                                    "val": {
+                                      "u64": 1000000
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "symbol": "frequency_days"
+                                    },
+                                    "val": {
+                                      "u32": 0
                                     }
                                   },
                                   {
@@ -104,18 +144,10 @@
                                   },
                                   {
                                     "key": {
-                                      "symbol": "locked"
-                                    },
-                                    "val": {
-                                      "bool": true
-                                    }
-                                  },
-                                  {
-                                    "key": {
                                       "symbol": "name"
                                     },
                                     "val": {
-                                      "string": "Owner A Goal"
+                                      "string": "Edge Case"
                                     }
                                   },
                                   {
@@ -128,26 +160,29 @@
                                   },
                                   {
                                     "key": {
-                                      "symbol": "target_amount"
+                                      "symbol": "paid"
                                     },
                                     "val": {
-                                      "i128": {
-                                        "hi": 0,
-                                        "lo": 10000
-                                      }
+                                      "bool": false
                                     }
                                   },
                                   {
                                     "key": {
-                                      "symbol": "target_date"
+                                      "symbol": "paid_at"
+                                    },
+                                    "val": "void"
+                                  },
+                                  {
+                                    "key": {
+                                      "symbol": "recurring"
                                     },
                                     "val": {
-                                      "u64": 1800000
+                                      "bool": false
                                     }
                                   },
                                   {
                                     "key": {
-                                      "symbol": "unlock_date"
+                                      "symbol": "schedule_id"
                                     },
                                     "val": "void"
                                   }
@@ -167,7 +202,7 @@
                       },
                       {
                         "key": {
-                          "symbol": "OWN_GOAL"
+                          "symbol": "UNPD_TOT"
                         },
                         "val": {
                           "map": [
@@ -176,11 +211,10 @@
                                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                               },
                               "val": {
-                                "vec": [
-                                  {
-                                    "u32": 1
-                                  }
-                                ]
+                                "i128": {
+                                  "hi": 9223372036854775807,
+                                  "lo": 18446744073709551614
+                                }
                               }
                             }
                           ]
@@ -193,7 +227,7 @@
             },
             "ext": "v0"
           },
-          518401
+          518400
         ]
       ],
       [
@@ -226,7 +260,7 @@
             },
             "ext": "v0"
           },
-          6312000
+          6311999
         ]
       ],
       [
@@ -247,7 +281,7 @@
             },
             "ext": "v0"
           },
-          518401
+          518400
         ]
       ]
     ]
@@ -268,7 +302,7 @@
                 "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
               },
               {
-                "symbol": "create_goal"
+                "symbol": "create_bill"
               }
             ],
             "data": {
@@ -277,16 +311,25 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "string": "Owner A Goal"
+                  "string": "Edge Case"
                 },
                 {
                   "i128": {
-                    "hi": 0,
-                    "lo": 10000
+                    "hi": 9223372036854775807,
+                    "lo": 18446744073709551614
                   }
                 },
                 {
-                  "u64": 1800000
+                  "u64": 1000000
+                },
+                {
+                  "bool": false
+                },
+                {
+                  "u32": 0
+                },
+                {
+                  "string": "XLM"
                 }
               ]
             }
@@ -303,88 +346,35 @@
         "body": {
           "v0": {
             "topics": [
+              {
+                "symbol": "Remitwise"
+              },
+              {
+                "u32": 1
+              },
+              {
+                "u32": 1
+              },
               {
                 "symbol": "created"
               }
             ],
             "data": {
-              "map": [
-                {
-                  "key": {
-                    "symbol": "goal_id"
-                  },
-                  "val": {
-                    "u32": 1
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "name"
-                  },
-                  "val": {
-                    "string": "Owner A Goal"
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "target_amount"
-                  },
-                  "val": {
-                    "i128": {
-                      "hi": 0,
-                      "lo": 10000
-                    }
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "target_date"
-                  },
-                  "val": {
-                    "u64": 1800000
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "timestamp"
-                  },
-                  "val": {
-                    "u64": 1700000000
-                  }
-                }
-              ]
-            }
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
-        "type_": "contract",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "savings"
-              },
-              {
-                "vec": [
-                  {
-                    "symbol": "GoalCreated"
-                  }
-                ]
-              }
-            ],
-            "data": {
               "vec": [
                 {
                   "u32": 1
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                },
+                {
+                  "i128": {
+                    "hi": 9223372036854775807,
+                    "lo": 18446744073709551614
+                  }
+                },
+                {
+                  "u64": 1000000
                 }
               ]
             }
@@ -405,7 +395,7 @@
                 "symbol": "fn_return"
               },
               {
-                "symbol": "create_goal"
+                "symbol": "create_bill"
               }
             ],
             "data": {
@@ -431,155 +421,7 @@
                 "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
               },
               {
-                "symbol": "add_to_goal"
-              }
-            ],
-            "data": {
-              "vec": [
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                },
-                {
-                  "u32": 1
-                },
-                {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 500
-                  }
-                }
-              ]
-            }
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
-        "type_": "diagnostic",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "log"
-              }
-            ],
-            "data": {
-              "vec": [
-                {
-                  "string": "caught panic 'Only the goal owner can add funds' from contract function 'Symbol(obj#63)'"
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                },
-                {
-                  "u32": 1
-                },
-                {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 500
-                  }
-                }
-              ]
-            }
-          }
-        }
-      },
-      "failed_call": true
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
-        "type_": "diagnostic",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "error"
-              },
-              {
-                "error": {
-                  "wasm_vm": "invalid_action"
-                }
-              }
-            ],
-            "data": {
-              "string": "caught error from function"
-            }
-          }
-        }
-      },
-      "failed_call": true
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": null,
-        "type_": "diagnostic",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "error"
-              },
-              {
-                "error": {
-                  "wasm_vm": "invalid_action"
-                }
-              }
-            ],
-            "data": {
-              "vec": [
-                {
-                  "string": "contract try_call failed"
-                },
-                {
-                  "symbol": "add_to_goal"
-                },
-                {
-                  "vec": [
-                    {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                    },
-                    {
-                      "u32": 1
-                    },
-                    {
-                      "i128": {
-                        "hi": 0,
-                        "lo": 500
-                      }
-                    }
-                  ]
-                }
-              ]
-            }
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": null,
-        "type_": "diagnostic",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "fn_call"
-              },
-              {
-                "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
-              },
-              {
-                "symbol": "get_goal"
+                "symbol": "get_bill"
               }
             ],
             "data": {
@@ -602,20 +444,52 @@
                 "symbol": "fn_return"
               },
               {
-                "symbol": "get_goal"
+                "symbol": "get_bill"
               }
             ],
             "data": {
               "map": [
                 {
                   "key": {
-                    "symbol": "current_amount"
+                    "symbol": "amount"
                   },
                   "val": {
                     "i128": {
-                      "hi": 0,
-                      "lo": 0
+                      "hi": 9223372036854775807,
+                      "lo": 18446744073709551614
                     }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "created_at"
+                  },
+                  "val": {
+                    "u64": 0
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "currency"
+                  },
+                  "val": {
+                    "string": "XLM"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "due_date"
+                  },
+                  "val": {
+                    "u64": 1000000
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "frequency_days"
+                  },
+                  "val": {
+                    "u32": 0
                   }
                 },
                 {
@@ -628,18 +502,10 @@
                 },
                 {
                   "key": {
-                    "symbol": "locked"
-                  },
-                  "val": {
-                    "bool": true
-                  }
-                },
-                {
-                  "key": {
                     "symbol": "name"
                   },
                   "val": {
-                    "string": "Owner A Goal"
+                    "string": "Edge Case"
                   }
                 },
                 {
@@ -652,26 +518,29 @@
                 },
                 {
                   "key": {
-                    "symbol": "target_amount"
+                    "symbol": "paid"
                   },
                   "val": {
-                    "i128": {
-                      "hi": 0,
-                      "lo": 10000
-                    }
+                    "bool": false
                   }
                 },
                 {
                   "key": {
-                    "symbol": "target_date"
+                    "symbol": "paid_at"
+                  },
+                  "val": "void"
+                },
+                {
+                  "key": {
+                    "symbol": "recurring"
                   },
                   "val": {
-                    "u64": 1800000
+                    "bool": false
                   }
                 },
                 {
                   "key": {
-                    "symbol": "unlock_date"
+                    "symbol": "schedule_id"
                   },
                   "val": "void"
                 }
