@@ -67,6 +67,7 @@ fn test_multi_contract_user_flow() {
         &due_date,
         &recurring,
         &frequency_days,
+        &SorobanString::from_str(&env, "XLM"),
     );
     assert_eq!(bill_id, 1u32, "Bill ID should be 1");
 
@@ -213,6 +214,7 @@ fn test_multiple_entities_creation() {
         &(env.ledger().timestamp() + 30 * 86400),
         &true,
         &30u32,
+        &SorobanString::from_str(&env, "XLM"),
     );
     assert_eq!(bill1, 1u32);
 
@@ -223,6 +225,7 @@ fn test_multiple_entities_creation() {
         &(env.ledger().timestamp() + 15 * 86400),
         &true,
         &30u32,
+        &SorobanString::from_str(&env, "XLM"),
     );
     assert_eq!(bill2, 2u32);
 
