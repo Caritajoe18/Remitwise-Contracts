@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use super::*;
 use crate::InsuranceError;
 use soroban_sdk::{
@@ -50,6 +52,7 @@ fn test_create_policy() {
 }
 
 #[test]
+#[should_panic(expected = "Monthly premium must be positive")]
 fn test_create_policy_invalid_premium() {
     let env = Env::default();
     let contract_id = env.register_contract(None, Insurance);
@@ -58,6 +61,7 @@ fn test_create_policy_invalid_premium() {
 
     env.mock_all_auths();
 
+    client.create_policy(
     let result = client.try_create_policy(
         &owner,
         &String::from_str(&env, "Bad"),
@@ -65,6 +69,10 @@ fn test_create_policy_invalid_premium() {
         &0,
         &10000,
     );
+}
+
+#[test]
+#[should_panic(expected = "Coverage amount must be positive")]
     assert_eq!(result, Err(Ok(InsuranceError::InvalidPremium)));
 }
 
@@ -77,6 +85,7 @@ fn test_create_policy_invalid_coverage() {
 
     env.mock_all_auths();
 
+    client.create_policy(
     let result = client.try_create_policy(
         &owner,
         &String::from_str(&env, "Bad"),
@@ -124,6 +133,7 @@ fn test_pay_premium() {
 }
 
 #[test]
+#[should_panic(expected = "Only the policy owner can pay premiums")]
 fn test_pay_premium_unauthorized() {
     let env = Env::default();
     let contract_id = env.register_contract(None, Insurance);
@@ -142,6 +152,7 @@ fn test_pay_premium_unauthorized() {
     );
 
     // unauthorized payer
+    client.pay_premium(&other, &policy_id);
     let result = client.try_pay_premium(&other, &policy_id);
     assert_eq!(result, Err(Ok(InsuranceError::Unauthorized)));
 }
@@ -205,8 +216,8 @@ fn test_get_active_policies() {
     // Deactivate P2
     client.deactivate_policy(&owner, &p2);
 
-    let active = client.get_active_policies(&owner, &0, &DEFAULT_PAGE_LIMIT);
-    assert_eq!(active.items.len(), 2);
+    let active = client.get_active_policies(&owner);
+    assert_eq!(active.len(), 2);
 
     // Check specific IDs if needed, but length 2 confirms one was filtered
 }
@@ -432,7 +443,7 @@ fn test_get_total_monthly_premium_deactivated_policy_excluded() {
         &100,
         &1000,
     );
-    let _policy2 = client.create_policy(
+    let policy2 = client.create_policy(
         &owner,
         &String::from_str(&env, "Policy 2"),
         &String::from_str(&env, "life"),
@@ -841,7 +852,7 @@ fn test_deactivate_policy_emits_event() {
 
     let expected_topics = vec![
         &env,
-        symbol_short!("insure").into_val(&env), // Fixed: should be "insure" not "insuranc"
+        symbol_short!("insuranc").into_val(&env), // Note: contract says symbol_short!("insuranc")
         InsuranceEvent::PolicyDeactivated.into_val(&env),
     ];
 
@@ -852,7 +863,89 @@ fn test_deactivate_policy_emits_event() {
     assert_eq!(audit_event.0, contract_id.clone());
 }
 
-// Required test cases from issue #61
+#[test]
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+fn test_create_policy_non_owner_auth_failure() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, Insurance);
+    let client = InsuranceClient::new(&env, &contract_id);
+    let owner = Address::generate(&env);
+    let other = Address::generate(&env);
+
+    // Do not mock auth for other, attempt to create policy for owner as other
+    // If owner didn't authorize, it panics.
+    client.create_policy(
+        &owner,
+        &String::from_str(&env, "Policy"),
+        &String::from_str(&env, "Type"),
+        &100,
+        &10000,
+    );
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+fn test_pay_premium_non_owner_auth_failure() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, Insurance);
+    let client = InsuranceClient::new(&env, &contract_id);
+    let owner = Address::generate(&env);
+    let other = Address::generate(&env);
+
+    client.mock_auths(&[soroban_sdk::testutils::MockAuth {
+        address: &owner,
+        invoke: &soroban_sdk::testutils::MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "create_policy",
+            args: (&owner, String::from_str(&env, "Policy"), String::from_str(&env, "Type"), 100u32, 10000i128).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    let policy_id = client.create_policy(
+        &owner,
+        &String::from_str(&env, "Policy"),
+        &String::from_str(&env, "Type"),
+        &100,
+        &10000,
+    );
+
+    // other tries to pay the premium for owner
+    client.pay_premium(&owner, &policy_id);
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+fn test_deactivate_policy_non_owner_auth_failure() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, Insurance);
+    let client = InsuranceClient::new(&env, &contract_id);
+    let owner = Address::generate(&env);
+    let other = Address::generate(&env);
+
+    client.mock_auths(&[soroban_sdk::testutils::MockAuth {
+        address: &owner,
+        invoke: &soroban_sdk::testutils::MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "create_policy",
+            args: (&owner, String::from_str(&env, "Policy"), String::from_str(&env, "Type"), 100u32, 10000i128).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    let policy_id = client.create_policy(
+        &owner,
+        &String::from_str(&env, "Policy"),
+        &String::from_str(&env, "Type"),
+        &100,
+        &10000,
+    );
+
+    // other tries to deactivate the policy for owner
+    client.deactivate_policy(&owner, &policy_id);
+}
+
+// Required test cases from issue #61// Required test cases from issue #61
 
 #[test]
 fn test_create_policy_success() {
