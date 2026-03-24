@@ -88,6 +88,8 @@ impl MockInsurance {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::OrchestratorAuditEntry;
+    use soroban_sdk::symbol_short;
 
     /// Set up test environment with all contracts deployed
     fn setup_test_env() -> (
@@ -124,6 +126,44 @@ mod tests {
             insurance_id,
             user,
         )
+    }
+
+    /// Seed audit log entries by calling the same rotation-aware internal helper used in production.
+    fn seed_audit_log(env: &Env, caller: &Address, count: u32) {
+        for i in 0..count {
+            Orchestrator::append_audit_entry(
+                env,
+                caller,
+                symbol_short!("execflow"),
+                i as i128,
+                true,
+                None,
+            );
+        }
+    }
+
+    /// Read the full bounded log using cursor-based pagination.
+    fn collect_all_pages(
+        client: &OrchestratorClient,
+        page_size: u32,
+    ) -> std::vec::Vec<OrchestratorAuditEntry> {
+        let mut out = std::vec::Vec::new();
+        let mut cursor = 0u32;
+        loop {
+            let page = client.get_audit_log(&cursor, &page_size);
+            if page.len() == 0 {
+                break;
+            }
+
+            for i in 0..page.len() {
+                if let Some(entry) = page.get(i) {
+                    out.push(entry);
+                }
+            }
+
+            cursor += page.len();
+        }
+        out
     }
 
     #[test]
@@ -518,5 +558,71 @@ mod tests {
         let log = client.get_audit_log(&0, &10);
 
         assert_eq!(log.len(), 0);
+    }
+
+    #[test]
+    fn test_get_audit_log_pagination_is_stable_and_complete_under_heavy_history() {
+        let (env, orchestrator_id, _, _, _, _, _, user) = setup_test_env();
+        let client = OrchestratorClient::new(&env, &orchestrator_id);
+
+        // Seed above capacity to force rotation and emulate heavy execution history.
+        let seeded = 130u32;
+        seed_audit_log(&env, &user, seeded);
+
+        // Fetch in multiple pages and assert continuity without duplicates.
+        let page_size = 17u32;
+        let entries = collect_all_pages(&client, page_size);
+        assert_eq!(entries.len() as u32, 100);
+
+        // Rotation should retain the most recent [30..129] amounts.
+        for (idx, entry) in entries.iter().enumerate() {
+            let expected_amount = (idx as i128) + 30;
+            assert_eq!(entry.amount, expected_amount);
+            assert!(entry.success);
+            assert_eq!(entry.operation, symbol_short!("execflow"));
+        }
+
+        let mut dedupe = std::collections::BTreeSet::new();
+        for entry in &entries {
+            dedupe.insert(entry.amount);
+        }
+        assert_eq!(dedupe.len(), entries.len());
+    }
+
+    #[test]
+    fn test_get_audit_log_cursor_boundaries_and_limits_are_correct() {
+        let (env, orchestrator_id, _, _, _, _, _, user) = setup_test_env();
+        let client = OrchestratorClient::new(&env, &orchestrator_id);
+
+        seed_audit_log(&env, &user, 12);
+
+        // limit=0 should produce empty page.
+        assert_eq!(client.get_audit_log(&0, &0).len(), 0);
+
+        // Exact boundary page.
+        let page = client.get_audit_log(&8, &4);
+        assert_eq!(page.len(), 4);
+        assert_eq!(page.get(0).unwrap().amount, 8);
+        assert_eq!(page.get(3).unwrap().amount, 11);
+
+        // from_index at length is empty.
+        assert_eq!(client.get_audit_log(&12, &5).len(), 0);
+
+        // from_index beyond length is empty.
+        assert_eq!(client.get_audit_log(&99, &5).len(), 0);
+    }
+
+    #[test]
+    fn test_get_audit_log_large_cursor_does_not_overflow_or_duplicate() {
+        let (env, orchestrator_id, _, _, _, _, _, user) = setup_test_env();
+        let client = OrchestratorClient::new(&env, &orchestrator_id);
+
+        seed_audit_log(&env, &user, 5);
+
+        // Regression test: very large cursor should safely return empty page
+        // rather than panicking due to u32 addition overflow.
+        let huge_cursor = u32::MAX;
+        let page = client.get_audit_log(&huge_cursor, &100);
+        assert_eq!(page.len(), 0);
     }
 }
