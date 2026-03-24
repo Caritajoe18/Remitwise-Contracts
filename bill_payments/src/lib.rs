@@ -77,8 +77,9 @@ pub enum Error {
     BatchValidationFailed = 10,
     InvalidLimit = 11,
     InvalidDueDate = 12,
-    InvalidTag = 12,
-    EmptyTags = 13,
+    InvalidTag = 13,
+    EmptyTags = 14,
+    InvalidCurrency = 15,
 }
 
 #[derive(Clone)]
@@ -147,6 +148,66 @@ impl BillPayments {
     // -----------------------------------------------------------------------
     // Internal helpers
     // -----------------------------------------------------------------------
+
+    /// Normalize a currency string for consistent storage and comparison.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment
+    /// * `currency` - Currency code string to normalize
+    ///
+    /// # Returns
+    /// Normalized currency string with:
+    /// 1. Whitespace trimmed from both ends
+    /// 2. Converted to uppercase
+    /// 3. Empty strings default to "XLM"
+    ///
+    /// # Examples
+    /// - "usdc" → "USDC"
+    /// - " XLM " → "XLM"
+    /// - "" → "XLM"
+    /// - "UsDc" → "USDC"
+    fn normalize_currency(env: &Env, currency: &String) -> String {
+        let trimmed = currency.trim();
+        if trimmed.is_empty() {
+            String::from_str(env, "XLM")
+        } else {
+            String::from_str(env, &trimmed.to_uppercase())
+        }
+    }
+
+    /// Validate a currency string according to contract requirements.
+    ///
+    /// # Arguments
+    /// * `currency` - Currency code string to validate
+    ///
+    /// # Returns
+    /// * `Ok(())` if the currency is valid
+    /// * `Err(Error::InvalidCurrency)` if invalid
+    ///
+    /// # Validation Rules
+    /// 1. Length must be 1-12 characters (after trimming)
+    /// 2. Must contain only alphanumeric characters (A-Z, a-z, 0-9)
+    /// 3. Empty strings are allowed (will be normalized to "XLM")
+    ///
+    /// # Examples
+    /// - Valid: "XLM", "USDC", "NGN", "EUR123"
+    /// - Invalid: "USD$", "BTC-ETH", "XLM/USD", "ABCDEFGHIJKLM" (too long)
+    fn validate_currency(currency: &String) -> Result<(), Error> {
+        let s = currency.trim();
+        if s.is_empty() {
+            return Ok(()); // Will be normalized to "XLM"
+        }
+        if s.len() > 12 {
+            return Err(Error::InvalidCurrency);
+        }
+        // Check if all characters are alphanumeric (A-Z, a-z, 0-9)
+        for ch in s.chars() {
+            if !ch.is_ascii_alphanumeric() {
+                return Err(Error::InvalidCurrency);
+            }
+        }
+        Ok(())
+    }
 
     fn get_pause_admin(env: &Env) -> Option<Address> {
         env.storage().instance().get(&symbol_short!("PAUSE_ADM"))
@@ -369,6 +430,34 @@ impl BillPayments {
     // Core bill operations
     // -----------------------------------------------------------------------
 
+    /// Create a new bill with currency specification.
+    ///
+    /// # Arguments
+    /// * `owner` - Address of the bill owner (must authorize)
+    /// * `name` - Name of the bill (e.g., "Electricity", "School Fees")
+    /// * `amount` - Amount to pay (must be positive)
+    /// * `due_date` - Due date as Unix timestamp (must be in the future)
+    /// * `recurring` - Whether this is a recurring bill
+    /// * `frequency_days` - Frequency in days for recurring bills (must be > 0 if recurring)
+    /// * `external_ref` - Optional external system reference ID
+    /// * `currency` - Currency code (e.g., "XLM", "USDC", "NGN"). Case-insensitive, whitespace trimmed.
+    ///
+    /// # Returns
+    /// The ID of the created bill
+    ///
+    /// # Errors
+    /// * `InvalidAmount` - If amount is zero or negative
+    /// * `InvalidFrequency` - If recurring is true but frequency_days is 0
+    /// * `InvalidDueDate` - If due_date is 0 or in the past
+    /// * `InvalidCurrency` - If currency code is invalid (non-alphanumeric or wrong length)
+    /// * `ContractPaused` - If contract is globally paused
+    /// * `FunctionPaused` - If create_bill function is paused
+    ///
+    /// # Currency Normalization
+    /// - Converts to uppercase (e.g., "usdc" → "USDC")
+    /// - Trims whitespace (e.g., " XLM " → "XLM")
+    /// - Empty string defaults to "XLM"
+    /// - Validates: 1-12 alphanumeric characters only
     #[allow(clippy::too_many_arguments)]
     pub fn create_bill(
         env: Env,
@@ -396,12 +485,9 @@ impl BillPayments {
             return Err(Error::InvalidFrequency);
         }
 
-        // Resolve default currency: blank input → "XLM"
-        let resolved_currency = if currency.is_empty() {
-            String::from_str(&env, "XLM")
-        } else {
-            currency
-        };
+        // Validate and normalize currency
+        Self::validate_currency(&currency)?;
+        let resolved_currency = Self::normalize_currency(&env, &currency);
 
         Self::extend_instance_ttl(&env);
         let mut bills: Map<u32, Bill> = env
@@ -1197,13 +1283,24 @@ impl BillPayments {
     /// Get a page of ALL bills (paid + unpaid) for `owner` that match `currency`.
     ///
     /// # Arguments
-    /// * `owner`    – whose bills to return
-    /// * `currency` – currency code to filter by, e.g. `"USDC"`, `"XLM"`
-    /// * `cursor`   – start after this bill ID (pass 0 for the first page)
-    /// * `limit`    – max items per page (0 → DEFAULT_PAGE_LIMIT, capped at MAX_PAGE_LIMIT)
+    /// * `owner`    – Address of the bill owner
+    /// * `currency` – Currency code to filter by, e.g. `"USDC"`, `"XLM"`
+    /// * `cursor`   – Start after this bill ID (pass 0 for the first page)
+    /// * `limit`    – Max items per page (0 → DEFAULT_PAGE_LIMIT, capped at MAX_PAGE_LIMIT)
     ///
     /// # Returns
     /// `BillPage { items, next_cursor, count }`. `next_cursor == 0` means no more pages.
+    ///
+    /// # Currency Comparison
+    /// Currency comparison is case-insensitive and whitespace-insensitive:
+    /// - "usdc", "USDC", "UsDc", " usdc " all match
+    /// - Empty currency defaults to "XLM" for comparison
+    ///
+    /// # Examples
+    /// ```rust
+    /// // Get all USDC bills for owner
+    /// let page = client.get_bills_by_currency(&owner, &"USDC".into(), &0, &10);
+    /// ```
     pub fn get_bills_by_currency(
         env: Env,
         owner: Address,
@@ -1212,6 +1309,7 @@ impl BillPayments {
         limit: u32,
     ) -> BillPage {
         let limit = Self::clamp_limit(limit);
+        let normalized_currency = Self::normalize_currency(&env, &currency);
         let bills: Map<u32, Bill> = env
             .storage()
             .instance()
@@ -1223,7 +1321,7 @@ impl BillPayments {
             if id <= cursor {
                 continue;
             }
-            if bill.owner != owner || bill.currency != currency {
+            if bill.owner != owner || bill.currency != normalized_currency {
                 continue;
             }
             staging.push_back((id, bill));
@@ -1237,7 +1335,25 @@ impl BillPayments {
 
     /// Get a page of **unpaid** bills for `owner` that match `currency`.
     ///
-    /// Same cursor/limit semantics as `get_bills_by_currency`.
+    /// # Arguments
+    /// * `owner`    – Address of the bill owner
+    /// * `currency` – Currency code to filter by, e.g. `"USDC"`, `"XLM"`
+    /// * `cursor`   – Start after this bill ID (pass 0 for the first page)
+    /// * `limit`    – Max items per page (0 → DEFAULT_PAGE_LIMIT, capped at MAX_PAGE_LIMIT)
+    ///
+    /// # Returns
+    /// `BillPage { items, next_cursor, count }`. `next_cursor == 0` means no more pages.
+    ///
+    /// # Currency Comparison
+    /// Currency comparison is case-insensitive and whitespace-insensitive:
+    /// - "usdc", "USDC", "UsDc", " usdc " all match
+    /// - Empty currency defaults to "XLM" for comparison
+    ///
+    /// # Examples
+    /// ```rust
+    /// // Get unpaid USDC bills for owner
+    /// let page = client.get_unpaid_bills_by_currency(&owner, &"USDC".into(), &0, &10);
+    /// ```
     pub fn get_unpaid_bills_by_currency(
         env: Env,
         owner: Address,
@@ -1246,6 +1362,7 @@ impl BillPayments {
         limit: u32,
     ) -> BillPage {
         let limit = Self::clamp_limit(limit);
+        let normalized_currency = Self::normalize_currency(&env, &currency);
         let bills: Map<u32, Bill> = env
             .storage()
             .instance()
@@ -1257,7 +1374,7 @@ impl BillPayments {
             if id <= cursor {
                 continue;
             }
-            if bill.owner != owner || bill.paid || bill.currency != currency {
+            if bill.owner != owner || bill.paid || bill.currency != normalized_currency {
                 continue;
             }
             staging.push_back((id, bill));
@@ -1271,11 +1388,27 @@ impl BillPayments {
 
     /// Sum of all **unpaid** bill amounts for `owner` denominated in `currency`.
     ///
-    /// # Example
-    /// ```text
-    /// let usdc_owed = client.get_total_unpaid_by_currency(&owner, &String::from_str(&env, "USDC"));
+    /// # Arguments
+    /// * `owner`    – Address of the bill owner
+    /// * `currency` – Currency code to filter by, e.g. `"USDC"`, `"XLM"`
+    ///
+    /// # Returns
+    /// Total unpaid amount in the specified currency
+    ///
+    /// # Currency Comparison
+    /// Currency comparison is case-insensitive and whitespace-insensitive:
+    /// - "usdc", "USDC", "UsDc", " usdc " all match
+    /// - Empty currency defaults to "XLM" for comparison
+    ///
+    /// # Examples
+    /// ```rust
+    /// // Get total unpaid amount in USDC
+    /// let total_usdc = client.get_total_unpaid_by_currency(&owner, &"USDC".into());
+    /// // Get total unpaid amount in XLM
+    /// let total_xlm = client.get_total_unpaid_by_currency(&owner, &"XLM".into());
     /// ```
     pub fn get_total_unpaid_by_currency(env: Env, owner: Address, currency: String) -> i128 {
+        let normalized_currency = Self::normalize_currency(&env, &currency);
         let bills: Map<u32, Bill> = env
             .storage()
             .instance()
@@ -1283,7 +1416,7 @@ impl BillPayments {
             .unwrap_or_else(|| Map::new(&env));
         let mut total = 0i128;
         for (_, bill) in bills.iter() {
-            if !bill.paid && bill.owner == owner && bill.currency == currency {
+            if !bill.paid && bill.owner == owner && bill.currency == normalized_currency {
                 total += bill.amount;
             }
         }
@@ -2568,4 +2701,383 @@ mod test {
             "Bill must be overdue one full day past due_date"
         );
     }
+
+    // -----------------------------------------------------------------------
+    // Currency normalization and validation tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_currency_normalization_case_insensitive() {
+        let env = make_env();
+        env.mock_all_auths();
+        let cid = env.register_contract(None, BillPayments);
+        let client = BillPaymentsClient::new(&env, &cid);
+        let owner = Address::generate(&env);
+
+        // Create bills with different case variations
+        let bill1 = client.create_bill(
+            &owner,
+            &String::from_str(&env, "Bill 1"),
+            &100,
+            &1_000_000,
+            &false,
+            &0,
+            &String::from_str(&env, "usdc"),
+        );
+
+        let bill2 = client.create_bill(
+            &owner,
+            &String::from_str(&env, "Bill 2"),
+            &200,
+            &1_000_000,
+            &false,
+            &0,
+            &String::from_str(&env, "USDC"),
+        );
+
+        let bill3 = client.create_bill(
+            &owner,
+            &String::from_str(&env, "Bill 3"),
+            &300,
+            &1_000_000,
+            &false,
+            &0,
+            &String::from_str(&env, "UsDc"),
+        );
+
+        // All bills should have normalized currency "USDC"
+        let b1 = client.get_bill(&bill1).unwrap();
+        let b2 = client.get_bill(&bill2).unwrap();
+        let b3 = client.get_bill(&bill3).unwrap();
+
+        assert_eq!(b1.currency, String::from_str(&env, "USDC"));
+        assert_eq!(b2.currency, String::from_str(&env, "USDC"));
+        assert_eq!(b3.currency, String::from_str(&env, "USDC"));
+
+        // Query with different case should return all bills
+        let page = client.get_bills_by_currency(&owner, &String::from_str(&env, "usdc"), &0, &10);
+        assert_eq!(page.count, 3);
+
+        let page2 = client.get_bills_by_currency(&owner, &String::from_str(&env, "USDC"), &0, &10);
+        assert_eq!(page2.count, 3);
+
+        let page3 = client.get_bills_by_currency(&owner, &String::from_str(&env, "UsDc"), &0, &10);
+        assert_eq!(page3.count, 3);
+    }
+
+    #[test]
+    fn test_currency_normalization_empty_defaults_to_xlm() {
+        let env = make_env();
+        env.mock_all_auths();
+        let cid = env.register_contract(None, BillPayments);
+        let client = BillPaymentsClient::new(&env, &cid);
+        let owner = Address::generate(&env);
+
+        // Create bill with empty currency
+        let bill_id = client.create_bill(
+            &owner,
+            &String::from_str(&env, "Default Currency"),
+            &100,
+            &1_000_000,
+            &false,
+            &0,
+            &String::from_str(&env, ""),
+        );
+
+        let bill = client.get_bill(&bill_id).unwrap();
+        assert_eq!(bill.currency, String::from_str(&env, "XLM"));
+
+        // Query with XLM should return the bill
+        let page = client.get_bills_by_currency(&owner, &String::from_str(&env, "XLM"), &0, &10);
+        assert_eq!(page.count, 1);
+    }
+
+    #[test]
+    fn test_currency_normalization_whitespace_trimmed() {
+        let env = make_env();
+        env.mock_all_auths();
+        let cid = env.register_contract(None, BillPayments);
+        let client = BillPaymentsClient::new(&env, &cid);
+        let owner = Address::generate(&env);
+
+        // Create bill with whitespace
+        let bill_id = client.create_bill(
+            &owner,
+            &String::from_str(&env, "Whitespace"),
+            &100,
+            &1_000_000,
+            &false,
+            &0,
+            &String::from_str(&env, "  usdc  "),
+        );
+
+        let bill = client.get_bill(&bill_id).unwrap();
+        assert_eq!(bill.currency, String::from_str(&env, "USDC"));
+    }
+
+    #[test]
+    fn test_currency_validation_valid() {
+        let env = make_env();
+        env.mock_all_auths();
+        let cid = env.register_contract(None, BillPayments);
+        let client = BillPaymentsClient::new(&env, &cid);
+        let owner = Address::generate(&env);
+
+        // Valid currency codes
+        let valid_currencies = vec!["XLM", "USDC", "NGN", "EUR", "GBP", "BTC", "ETH", "SOL", "ADA", "DOT"];
+
+        for (i, currency) in valid_currencies.iter().enumerate() {
+            let result = client.try_create_bill(
+                &owner,
+                &String::from_str(&env, &format!("Bill {}", i)),
+                &100,
+                &1_000_000,
+                &false,
+                &0,
+                &String::from_str(&env, currency),
+            );
+            assert!(result.is_ok(), "Currency {} should be valid", currency);
+        }
+    }
+
+    #[test]
+    fn test_currency_validation_invalid_characters() {
+        let env = make_env();
+        env.mock_all_auths();
+        let cid = env.register_contract(None, BillPayments);
+        let client = BillPaymentsClient::new(&env, &cid);
+        let owner = Address::generate(&env);
+
+        // Invalid currency codes with special characters
+        let invalid_currencies = vec!["USD$", "BTC-ETH", "XLM/USD", "NGN!", "EUR@", "GBP#"];
+
+        for (i, currency) in invalid_currencies.iter().enumerate() {
+            let result = client.try_create_bill(
+                &owner,
+                &String::from_str(&env, &format!("Invalid {}", i)),
+                &100,
+                &1_000_000,
+                &false,
+                &0,
+                &String::from_str(&env, currency),
+            );
+            assert!(result.is_err(), "Currency {} should be invalid", currency);
+            if let Err(Ok(err)) = result {
+                assert_eq!(err, Error::InvalidCurrency);
+            }
+        }
+    }
+
+    #[test]
+    fn test_currency_validation_too_long() {
+        let env = make_env();
+        env.mock_all_auths();
+        let cid = env.register_contract(None, BillPayments);
+        let client = BillPaymentsClient::new(&env, &cid);
+        let owner = Address::generate(&env);
+
+        // Currency code too long (13 characters)
+        let long_currency = "ABCDEFGHIJKLM";
+        let result = client.try_create_bill(
+            &owner,
+            &String::from_str(&env, "Too Long"),
+            &100,
+            &1_000_000,
+            &false,
+            &0,
+            &String::from_str(&env, long_currency),
+        );
+        assert!(result.is_err());
+        if let Err(Ok(err)) = result {
+            assert_eq!(err, Error::InvalidCurrency);
+        }
+    }
+
+    #[test]
+    fn test_currency_validation_max_length() {
+        let env = make_env();
+        env.mock_all_auths();
+        let cid = env.register_contract(None, BillPayments);
+        let client = BillPaymentsClient::new(&env, &cid);
+        let owner = Address::generate(&env);
+
+        // Currency code at max length (12 characters)
+        let max_currency = "ABCDEFGHIJKL";
+        let result = client.try_create_bill(
+            &owner,
+            &String::from_str(&env, "Max Length"),
+            &100,
+            &1_000_000,
+            &false,
+            &0,
+            &String::from_str(&env, max_currency),
+        );
+        assert!(result.is_ok(), "12-character currency should be valid");
+    }
+
+    #[test]
+    fn test_get_total_unpaid_by_currency_case_insensitive() {
+        let env = make_env();
+        env.mock_all_auths();
+        let cid = env.register_contract(None, BillPayments);
+        let client = BillPaymentsClient::new(&env, &cid);
+        let owner = Address::generate(&env);
+
+        // Create bills with different case variations
+        client.create_bill(
+            &owner,
+            &String::from_str(&env, "Bill 1"),
+            &100,
+            &1_000_000,
+            &false,
+            &0,
+            &String::from_str(&env, "usdc"),
+        );
+
+        client.create_bill(
+            &owner,
+            &String::from_str(&env, "Bill 2"),
+            &200,
+            &1_000_000,
+            &false,
+            &0,
+            &String::from_str(&env, "USDC"),
+        );
+
+        client.create_bill(
+            &owner,
+            &String::from_str(&env, "Bill 3"),
+            &300,
+            &1_000_000,
+            &false,
+            &0,
+            &String::from_str(&env, "XLM"),
+        );
+
+        // Query with different case should return same total
+        let total1 = client.get_total_unpaid_by_currency(&owner, &String::from_str(&env, "usdc"));
+        let total2 = client.get_total_unpaid_by_currency(&owner, &String::from_str(&env, "USDC"));
+        let total3 = client.get_total_unpaid_by_currency(&owner, &String::from_str(&env, "UsDc"));
+
+        assert_eq!(total1, 300); // 100 + 200
+        assert_eq!(total2, 300);
+        assert_eq!(total3, 300);
+
+        let total_xlm = client.get_total_unpaid_by_currency(&owner, &String::from_str(&env, "XLM"));
+        assert_eq!(total_xlm, 300);
+    }
+
+    #[test]
+    fn test_get_unpaid_bills_by_currency_case_insensitive() {
+        let env = make_env();
+        env.mock_all_auths();
+        let cid = env.register_contract(None, BillPayments);
+        let client = BillPaymentsClient::new(&env, &cid);
+        let owner = Address::generate(&env);
+
+        // Create bills with different case variations
+        client.create_bill(
+            &owner,
+            &String::from_str(&env, "Bill 1"),
+            &100,
+            &1_000_000,
+            &false,
+            &0,
+            &String::from_str(&env, "usdc"),
+        );
+
+        client.create_bill(
+            &owner,
+            &String::from_str(&env, "Bill 2"),
+            &200,
+            &1_000_000,
+            &false,
+            &0,
+            &String::from_str(&env, "USDC"),
+        );
+
+        client.create_bill(
+            &owner,
+            &String::from_str(&env, "Bill 3"),
+            &300,
+            &1_000_000,
+            &false,
+            &0,
+            &String::from_str(&env, "XLM"),
+        );
+
+        // Query with different case should return same results
+        let page1 = client.get_unpaid_bills_by_currency(&owner, &String::from_str(&env, "usdc"), &0, &10);
+        let page2 = client.get_unpaid_bills_by_currency(&owner, &String::from_str(&env, "USDC"), &0, &10);
+        let page3 = client.get_unpaid_bills_by_currency(&owner, &String::from_str(&env, "UsDc"), &0, &10);
+
+        assert_eq!(page1.count, 2);
+        assert_eq!(page2.count, 2);
+        assert_eq!(page3.count, 2);
+
+        let page_xlm = client.get_unpaid_bills_by_currency(&owner, &String::from_str(&env, "XLM"), &0, &10);
+        assert_eq!(page_xlm.count, 1);
+    }
+
+    #[test]
+    fn test_currency_normalization_preserved_in_recurring_bills() {
+        let env = make_env();
+        env.mock_all_auths();
+        let cid = env.register_contract(None, BillPayments);
+        let client = BillPaymentsClient::new(&env, &cid);
+        let owner = Address::generate(&env);
+
+        // Create recurring bill with lowercase currency
+        let bill_id = client.create_bill(
+            &owner,
+            &String::from_str(&env, "Recurring Bill"),
+            &100,
+            &1_000_000,
+            &true,
+            &30,
+            &String::from_str(&env, "usdc"),
+        );
+
+        // Pay the bill to create next recurring bill
+        client.pay_bill(&owner, &bill_id);
+
+        // Check both bills have normalized currency
+        let bill1 = client.get_bill(&bill_id).unwrap();
+        let bill2 = client.get_bill(&2).unwrap();
+
+        assert_eq!(bill1.currency, String::from_str(&env, "USDC"));
+        assert_eq!(bill2.currency, String::from_str(&env, "USDC"));
+    }
+
+    #[test]
+    fn test_currency_normalization_preserved_in_archived_bills() {
+        let env = make_env();
+        env.mock_all_auths();
+        let cid = env.register_contract(None, BillPayments);
+        let client = BillPaymentsClient::new(&env, &cid);
+        let owner = Address::generate(&env);
+
+        // Set pause admin for archive operation
+        client.set_pause_admin(&owner, &owner);
+
+        // Create bill with lowercase currency
+        let bill_id = client.create_bill(
+            &owner,
+            &String::from_str(&env, "To Archive"),
+            &100,
+            &1_000_000,
+            &false,
+            &0,
+            &String::from_str(&env, "usdc"),
+        );
+
+        // Pay and archive the bill
+        client.pay_bill(&owner, &bill_id);
+        client.archive_paid_bills(&owner, &u64::MAX);
+
+        // Check archived bill has normalized currency
+        let archived = client.get_archived_bill(&bill_id).unwrap();
+        assert_eq!(archived.currency, String::from_str(&env, "USDC"));
+    }
+}
 }
