@@ -1318,14 +1318,19 @@ impl Orchestrator {
             })
     }
 
-    /// Get audit log entries
+    /// Get paginated audit log entries using a stable cursor index.
     ///
     /// # Arguments
-    /// * `from_index` - Starting index in the log
-    /// * `limit` - Maximum number of entries to return
+    /// * `from_index` - Zero-based starting index in the current bounded audit log
+    /// * `limit` - Maximum number of entries to return (clamped to `MAX_AUDIT_ENTRIES`)
     ///
     /// # Returns
-    /// Vec of OrchestratorAuditEntry structs
+    /// Vec of `OrchestratorAuditEntry` structs ordered from oldest to newest.
+    ///
+    /// # Security Notes
+    /// - Uses saturating arithmetic when computing page end to prevent cursor overflow.
+    /// - Returns an empty page when `from_index` is out of range.
+    /// - Does not duplicate entries within a page because iteration is strictly monotonic.
     pub fn get_audit_log(env: Env, from_index: u32, limit: u32) -> Vec<OrchestratorAuditEntry> {
         let log: Option<Vec<OrchestratorAuditEntry>> =
             env.storage().instance().get(&symbol_short!("AUDIT"));
@@ -1338,7 +1343,7 @@ impl Orchestrator {
             return out;
         }
 
-        let end = (from_index + cap).min(len);
+        let end = from_index.saturating_add(cap).min(len);
         for i in from_index..end {
             if let Some(entry) = log.get(i) {
                 out.push_back(entry);
